@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { Search, Upload, FileText } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Upload, FileText, FolderOpen } from 'lucide-react';
 import api from '../../../lib/api';
 
 const DocumentsPage = () => {
@@ -111,6 +111,26 @@ const DocumentsPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y text-gray-700">
+                {loading ? (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-16 text-center text-gray-400">
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
+                        <span className="text-sm">Loading documents...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : documents.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-20 text-center">
+                      <div className="flex flex-col items-center gap-3 text-gray-400">
+                        <FolderOpen className="h-12 w-12 text-gray-300" />
+                        <p className="font-medium text-gray-500">No documents found</p>
+                        <p className="text-sm">Upload a document or adjust your search filters.</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
                 <tr className="hover:bg-gray-50">
                   <td className="px-6 py-4 flex items-start">
                     <FileText className="h-5 w-5 mr-3 text-gray-400 shrink-0 mt-0.5" />
@@ -162,6 +182,7 @@ const DocumentsPage = () => {
                   <td className="px-6 py-4 text-gray-500">Jan 01, 2026</td>
                   <td className="px-6 py-4 text-gray-500">1mo ago</td>
                 </tr>
+                )}
               </tbody>
             </table>
           </div>
