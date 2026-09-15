@@ -74,19 +74,28 @@ const CopilotPage = () => {
           <div className="p-5 border-b shrink-0">
             <div className="flex items-center justify-between mb-2">
               <h2 className="font-semibold text-lg">Financial Research Copilot</h2>
-              <div className="flex bg-gray-100 rounded-md p-0.5 border">
-                <button 
-                  onClick={() => setMode('ADVISOR')}
-                  className={`px-3 py-1 text-xs font-medium rounded-sm ${mode === 'ADVISOR' ? 'bg-white shadow-sm text-primary' : 'text-gray-500'}`}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setHistory([])}
+                  title="Clear chat history"
+                  className="px-2 py-1 text-xs text-gray-500 hover:text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 rounded-md transition-colors"
                 >
-                  ADVISOR
+                  Clear Chat
                 </button>
-                <button 
-                  onClick={() => setMode('SUMMARY')}
-                  className={`px-3 py-1 text-xs font-medium rounded-sm ${mode === 'SUMMARY' ? 'bg-white shadow-sm text-primary' : 'text-gray-500'}`}
-                >
-                  SUMMARY
-                </button>
+                <div className="flex bg-gray-100 rounded-md p-0.5 border">
+                  <button 
+                    onClick={() => setMode('ADVISOR')}
+                    className={`px-3 py-1 text-xs font-medium rounded-sm ${mode === 'ADVISOR' ? 'bg-white shadow-sm text-primary' : 'text-gray-500'}`}
+                  >
+                    ADVISOR
+                  </button>
+                  <button 
+                    onClick={() => setMode('SUMMARY')}
+                    className={`px-3 py-1 text-xs font-medium rounded-sm ${mode === 'SUMMARY' ? 'bg-white shadow-sm text-primary' : 'text-gray-500'}`}
+                  >
+                    SUMMARY
+                  </button>
+                </div>
               </div>
             </div>
             <p className="text-sm text-gray-500">Ask questions about approved financial documents.</p>
@@ -149,22 +158,28 @@ const CopilotPage = () => {
             <div className="relative border rounded-lg bg-white shadow-sm focus-within:ring-1 focus-within:ring-primary focus-within:border-primary">
               <textarea 
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => setQuery(e.target.value.slice(0, 500))}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleQuery(); } }}
                 className="w-full p-3 pr-12 resize-none h-20 text-sm focus:outline-none rounded-lg"
                 placeholder="Ask a question about funds, fees, eligibility..."
+                maxLength={500}
               />
               <button 
                 onClick={handleQuery}
-                disabled={loading}
-                className="absolute bottom-3 right-3 bg-primary text-white p-2 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
+                disabled={loading || !query.trim()}
+                className="absolute bottom-3 right-3 bg-primary text-white p-2 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Send className="h-4 w-4" />
               </button>
             </div>
-            <p className="text-[10px] text-gray-400 mt-2 uppercase tracking-wide px-1">
-              REGULATORY DISCLOSURE: RESPONSES ARE AI-GENERATED BASED ON APPROVED DOCUMENTS. VERIFY BEFORE CLIENT DISTRIBUTION.
-            </p>
+            <div className="flex items-center justify-between mt-2 px-1">
+              <p className="text-[10px] text-gray-400 uppercase tracking-wide">
+                REGULATORY DISCLOSURE: RESPONSES ARE AI-GENERATED BASED ON APPROVED DOCUMENTS. VERIFY BEFORE CLIENT DISTRIBUTION.
+              </p>
+              <span className={`text-[10px] font-mono ${ query.length >= 450 ? 'text-amber-500' : 'text-gray-400' }`}>
+                {query.length}/500
+              </span>
+            </div>
           </div>
         </div>
 
