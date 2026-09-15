@@ -74,19 +74,28 @@ const CopilotPage = () => {
           <div className="p-5 border-b shrink-0">
             <div className="flex items-center justify-between mb-2">
               <h2 className="font-semibold text-lg">Financial Research Copilot</h2>
-              <div className="flex bg-gray-100 rounded-md p-0.5 border">
-                <button 
-                  onClick={() => setMode('ADVISOR')}
-                  className={`px-3 py-1 text-xs font-medium rounded-sm ${mode === 'ADVISOR' ? 'bg-white shadow-sm text-primary' : 'text-gray-500'}`}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setHistory([])}
+                  title="Clear chat history"
+                  className="px-2 py-1 text-xs text-gray-500 hover:text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 rounded-md transition-colors"
                 >
-                  ADVISOR
+                  Clear Chat
                 </button>
-                <button 
-                  onClick={() => setMode('SUMMARY')}
-                  className={`px-3 py-1 text-xs font-medium rounded-sm ${mode === 'SUMMARY' ? 'bg-white shadow-sm text-primary' : 'text-gray-500'}`}
-                >
-                  SUMMARY
-                </button>
+                <div className="flex bg-gray-100 rounded-md p-0.5 border">
+                  <button 
+                    onClick={() => setMode('ADVISOR')}
+                    className={`px-3 py-1 text-xs font-medium rounded-sm ${mode === 'ADVISOR' ? 'bg-white shadow-sm text-primary' : 'text-gray-500'}`}
+                  >
+                    ADVISOR
+                  </button>
+                  <button 
+                    onClick={() => setMode('SUMMARY')}
+                    className={`px-3 py-1 text-xs font-medium rounded-sm ${mode === 'SUMMARY' ? 'bg-white shadow-sm text-primary' : 'text-gray-500'}`}
+                  >
+                    SUMMARY
+                  </button>
+                </div>
               </div>
             </div>
             <p className="text-sm text-gray-500">Ask questions about approved financial documents.</p>
