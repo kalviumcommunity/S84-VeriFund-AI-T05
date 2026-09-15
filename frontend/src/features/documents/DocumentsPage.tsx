@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Search, Upload, FileText } from 'lucide-react';
-import api from '../../lib/api';
+import api from '../../../lib/api';
 
 const DocumentsPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [documents, setDocuments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchDocuments();
@@ -28,7 +30,7 @@ const DocumentsPage = () => {
 
     const formData = new FormData();
     formData.append('file', file);
-
+    setUploading(true);
     try {
       await api.post('/documents/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -36,6 +38,9 @@ const DocumentsPage = () => {
       fetchDocuments();
     } catch (error) {
       console.error('Upload failed', error);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -72,9 +77,21 @@ const DocumentsPage = () => {
                 <option>Balanced</option>
               </select>
             </div>
-            <button className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md flex items-center">
+            {/* Hidden file input wired to the Upload button */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.doc,.docx"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="h-9 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-medium rounded-md flex items-center transition-colors"
+            >
               <Upload className="h-4 w-4 mr-2" />
-              Upload Document
+              {uploading ? 'Uploading...' : 'Upload Document'}
             </button>
           </div>
 
