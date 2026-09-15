@@ -31,12 +31,13 @@ const Sidebar = () => {
             <NavLink
               key={item.name}
               to={item.path}
+              title={item.name}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
+                  "flex items-center px-3 py-2.5 rounded-md text-sm font-medium transition-colors border-l-2",
                   isActive
-                    ? "bg-[#EEF2FF] text-primary"
-                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                    ? "bg-[#EEF2FF] text-primary border-primary"
+                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 border-transparent"
                 )
               }
             >
