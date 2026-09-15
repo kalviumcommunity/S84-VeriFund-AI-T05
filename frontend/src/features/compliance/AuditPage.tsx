@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Bell, Filter, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { Calendar, Bell, Filter, ShieldCheck, AlertTriangle, Download } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../lib/api';
 
@@ -50,6 +50,28 @@ const AuditPage = () => {
     }
   };
 
+  const exportToCSV = () => {
+    const headers = ['ID', 'Timestamp', 'Advisor', 'Query', 'Groundedness (%)', 'Flagged'];
+    const rows = logs.map(log => [
+      log.id,
+      log.timestamp,
+      log.advisor,
+      `"${log.query.replace(/"/g, '""')}"`,
+      log.groundedness,
+      log.flagged ? 'Yes' : 'No',
+    ]);
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `audit-log-${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="flex flex-col h-full bg-[#F8FAFC]">
       {/* Header */}
@@ -91,10 +113,20 @@ const AuditPage = () => {
         <div className="bg-white border shadow-sm rounded-lg flex flex-col">
           <div className="p-4 border-b flex items-center justify-between">
             <h2 className="font-semibold text-gray-900">Query Audit Log</h2>
-            <button className="flex items-center px-3 py-1.5 border rounded-md text-sm text-gray-600 hover:bg-gray-50">
-              <Filter className="h-4 w-4 mr-2" />
-              Filter
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={exportToCSV}
+                disabled={logs.length === 0}
+                className="flex items-center px-3 py-1.5 border rounded-md text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <Download className="h-4 w-4 mr-2 text-primary" />
+                Export CSV
+              </button>
+              <button className="flex items-center px-3 py-1.5 border rounded-md text-sm text-gray-600 hover:bg-gray-50">
+                <Filter className="h-4 w-4 mr-2" />
+                Filter
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
