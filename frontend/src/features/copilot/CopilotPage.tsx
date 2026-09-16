@@ -2,13 +2,35 @@ import { Search, Send, ShieldCheck, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import api from '../../lib/api';
 
+interface ChatMessage {
+  type: 'user' | 'bot';
+  text: string;
+  score?: number;
+  /** ISO timestamp captured when the message is added to history */
+  timestamp: string;
+}
+
+/** Format a stored ISO timestamp into a human-readable "HH:MM AM/PM" string. */
+const formatTime = (iso: string): string => {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
 const CopilotPage = () => {
   const [mode, setMode] = useState<'ADVISOR' | 'SUMMARY'>('ADVISOR');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
-  const [history, setHistory] = useState<{type: 'user' | 'bot', text: string, score?: number}[]>([
-    { type: 'user', text: 'What is the annual expense ratio and exit fee for the Horizon Balanced Growth Fund?' },
-    { type: 'bot', text: 'According to the approved Horizon Balanced Growth Fund Factsheet, the annual expense ratio is 1.25% [Page 4] and the applicable exit fee is 2.00% [Page 17].', score: 98 }
+  const [history, setHistory] = useState<ChatMessage[]>([
+    {
+      type: 'user',
+      text: 'What is the annual expense ratio and exit fee for the Horizon Balanced Growth Fund?',
+      timestamp: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2 min ago for demo
+    },
+    {
+      type: 'bot',
+      text: 'According to the approved Horizon Balanced Growth Fund Factsheet, the annual expense ratio is 1.25% [Page 4] and the applicable exit fee is 2.00% [Page 17].',
+      score: 98,
+      timestamp: new Date(Date.now() - 1 * 60 * 1000).toISOString(), // 1 min ago for demo
+    },
   ]);
   const [pdfPage, setPdfPage] = useState<number>(1);
   const [ws, setWs] = useState<WebSocket | null>(null);
@@ -50,7 +72,10 @@ const CopilotPage = () => {
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'metadata') {
-        setHistory(prev => [...prev, { type: 'bot', text: '', score: Math.round(data.groundedness_score * 100) }]);
+        setHistory(prev => [
+          ...prev,
+          { type: 'bot', text: '', score: Math.round(data.groundedness_score * 100), timestamp: new Date().toISOString() },
+        ]);
       } else if (data.type === 'chunk') {
         setHistory(prev => {
           const newHistory = [...prev];
@@ -67,8 +92,8 @@ const CopilotPage = () => {
 
   const handleQuery = () => {
     if (!query.trim() || !ws) return;
-    
-    setHistory(prev => [...prev, { type: 'user', text: query }]);
+
+    setHistory(prev => [...prev, { type: 'user', text: query, timestamp: new Date().toISOString() }]);
     ws.send(query);
     setQuery('');
     setLoading(true);
@@ -142,13 +167,23 @@ const CopilotPage = () => {
           >
             {history.map((msg, idx) => (
               msg.type === 'user' ? (
-                <div key={idx} className="flex justify-end">
+                /* ── User message ─────────────────────────────── */
+                <div key={idx} className="flex flex-col items-end space-y-1">
                   <div className="bg-[#EEF2FF] text-gray-900 rounded-lg rounded-tr-none px-4 py-3 text-sm max-w-[85%]">
                     {msg.text}
                   </div>
+                  {/* Timestamp — shown below the bubble */}
+                  <span
+                    id={`msg-time-${idx}`}
+                    className="text-[10px] text-gray-400 select-none"
+                    title={new Date(msg.timestamp).toLocaleString()}
+                  >
+                    {formatTime(msg.timestamp)}
+                  </span>
                 </div>
               ) : (
-                <div key={idx} className="flex flex-col space-y-2">
+                /* ── Bot message ──────────────────────────────── */
+                <div key={idx} className="flex flex-col space-y-1">
                   <div className="flex items-center text-xs text-gray-500 font-medium">
                     <ShieldCheck className="h-4 w-4 mr-1 text-primary" /> 
                     VERIFUND AI
@@ -176,6 +211,14 @@ const CopilotPage = () => {
                       return <span key={i}>{part}</span>;
                     })}
                   </div>
+                  {/* Timestamp — shown below the bubble, left-aligned */}
+                  <span
+                    id={`msg-time-${idx}`}
+                    className="text-[10px] text-gray-400 pl-1 select-none"
+                    title={new Date(msg.timestamp).toLocaleString()}
+                  >
+                    {formatTime(msg.timestamp)}
+                  </span>
                 </div>
               )
             ))}
