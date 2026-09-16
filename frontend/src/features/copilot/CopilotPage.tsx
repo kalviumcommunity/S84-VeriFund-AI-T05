@@ -1,5 +1,5 @@
-import { Search, Send, ShieldCheck, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, CheckCircle2, FileText as FileIcon } from 'lucide-react';
-import { useState, useRef, useEffect } from 'react';
+import { Search, Send, ShieldCheck, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, CheckCircle2, FileText as FileIcon, ArrowDown } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import api from '../../lib/api';
 
 const CopilotPage = () => {
@@ -12,6 +12,36 @@ const CopilotPage = () => {
   ]);
   const [pdfPage, setPdfPage] = useState<number>(1);
   const [ws, setWs] = useState<WebSocket | null>(null);
+
+  // --- Scroll-to-bottom state ---
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const bottomAnchorRef = useRef<HTMLDivElement>(null);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+
+  /** Scroll the chat pane to the very bottom. */
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    bottomAnchorRef.current?.scrollIntoView({ behavior, block: 'end' });
+  }, []);
+
+  /** Track whether the user has scrolled away from the bottom. */
+  const handleScroll = useCallback(() => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    // Show button when more than 80 px above the bottom
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowScrollBtn(distanceFromBottom > 80);
+  }, []);
+
+  // Auto-scroll whenever history or loading state changes (new message arrived)
+  useEffect(() => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // Only auto-scroll if user is already near the bottom (within 200 px)
+    if (distanceFromBottom < 200) {
+      scrollToBottom('smooth');
+    }
+  }, [history, loading, scrollToBottom]);
 
   useEffect(() => {
     const socket = new WebSocket('ws://localhost:8000/api/v1/copilot/ws/query');
@@ -42,6 +72,8 @@ const CopilotPage = () => {
     ws.send(query);
     setQuery('');
     setLoading(true);
+    // Force-scroll to bottom on every new user message
+    setTimeout(() => scrollToBottom('smooth'), 50);
   };
 
   const handleCitationClick = (page: number) => {
@@ -92,8 +124,13 @@ const CopilotPage = () => {
             <p className="text-sm text-gray-500">Ask questions about approved financial documents.</p>
           </div>
 
-          {/* Chat History */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-6">
+          {/* Chat History — scrollable container */}
+          <div
+            id="chat-history"
+            ref={chatContainerRef}
+            onScroll={handleScroll}
+            className="flex-1 overflow-y-auto p-5 space-y-6 relative"
+          >
             {history.map((msg, idx) => (
               msg.type === 'user' ? (
                 <div key={idx} className="flex justify-end">
@@ -142,7 +179,24 @@ const CopilotPage = () => {
                 </div>
               </div>
             )}
+            {/* Invisible anchor used to scroll to the bottom */}
+            <div ref={bottomAnchorRef} aria-hidden="true" />
           </div>
+
+          {/* Scroll-to-bottom floating button */}
+          {showScrollBtn && (
+            <div className="relative">
+              <button
+                id="scroll-to-bottom-btn"
+                onClick={() => scrollToBottom('smooth')}
+                aria-label="Scroll to latest message"
+                className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-white border border-gray-200 shadow-md text-gray-600 text-xs font-medium px-3 py-1.5 rounded-full hover:bg-gray-50 hover:shadow-lg transition-all duration-200 z-10"
+              >
+                <ArrowDown className="h-3.5 w-3.5" />
+                Latest message
+              </button>
+            </div>
+          )}
 
           {/* Input Area */}
           <div className="p-4 border-t shrink-0 bg-gray-50/50">
