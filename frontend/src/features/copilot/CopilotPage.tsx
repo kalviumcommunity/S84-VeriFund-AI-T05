@@ -1,17 +1,69 @@
-import { Search, Send, ShieldCheck, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, CheckCircle2, FileText as FileIcon } from 'lucide-react';
-import { useState, useRef, useEffect } from 'react';
+import { Search, Send, ShieldCheck, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, CheckCircle2, FileText as FileIcon, ArrowDown } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import api from '../../lib/api';
+
+interface ChatMessage {
+  type: 'user' | 'bot';
+  text: string;
+  score?: number;
+  /** ISO timestamp captured when the message is added to history */
+  timestamp: string;
+}
+
+/** Format a stored ISO timestamp into a human-readable "HH:MM AM/PM" string. */
+const formatTime = (iso: string): string => {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
 
 const CopilotPage = () => {
   const [mode, setMode] = useState<'ADVISOR' | 'SUMMARY'>('ADVISOR');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
-  const [history, setHistory] = useState<{type: 'user' | 'bot', text: string, score?: number}[]>([
-    { type: 'user', text: 'What is the annual expense ratio and exit fee for the Horizon Balanced Growth Fund?' },
-    { type: 'bot', text: 'According to the approved Horizon Balanced Growth Fund Factsheet, the annual expense ratio is 1.25% [Page 4] and the applicable exit fee is 2.00% [Page 17].', score: 98 }
+  const [history, setHistory] = useState<ChatMessage[]>([
+    {
+      type: 'user',
+      text: 'What is the annual expense ratio and exit fee for the Horizon Balanced Growth Fund?',
+      timestamp: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2 min ago for demo
+    },
+    {
+      type: 'bot',
+      text: 'According to the approved Horizon Balanced Growth Fund Factsheet, the annual expense ratio is 1.25% [Page 4] and the applicable exit fee is 2.00% [Page 17].',
+      score: 98,
+      timestamp: new Date(Date.now() - 1 * 60 * 1000).toISOString(), // 1 min ago for demo
+    },
   ]);
   const [pdfPage, setPdfPage] = useState<number>(1);
   const [ws, setWs] = useState<WebSocket | null>(null);
+
+  // --- Scroll-to-bottom state ---
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const bottomAnchorRef = useRef<HTMLDivElement>(null);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+
+  /** Scroll the chat pane to the very bottom. */
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    bottomAnchorRef.current?.scrollIntoView({ behavior, block: 'end' });
+  }, []);
+
+  /** Track whether the user has scrolled away from the bottom. */
+  const handleScroll = useCallback(() => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    // Show button when more than 80 px above the bottom
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowScrollBtn(distanceFromBottom > 80);
+  }, []);
+
+  // Auto-scroll whenever history or loading state changes (new message arrived)
+  useEffect(() => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // Only auto-scroll if user is already near the bottom (within 200 px)
+    if (distanceFromBottom < 200) {
+      scrollToBottom('smooth');
+    }
+  }, [history, loading, scrollToBottom]);
 
   useEffect(() => {
     const socket = new WebSocket('ws://localhost:8000/api/v1/copilot/ws/query');
@@ -20,7 +72,10 @@ const CopilotPage = () => {
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'metadata') {
-        setHistory(prev => [...prev, { type: 'bot', text: '', score: Math.round(data.groundedness_score * 100) }]);
+        setHistory(prev => [
+          ...prev,
+          { type: 'bot', text: '', score: Math.round(data.groundedness_score * 100), timestamp: new Date().toISOString() },
+        ]);
       } else if (data.type === 'chunk') {
         setHistory(prev => {
           const newHistory = [...prev];
@@ -37,11 +92,13 @@ const CopilotPage = () => {
 
   const handleQuery = () => {
     if (!query.trim() || !ws) return;
-    
-    setHistory(prev => [...prev, { type: 'user', text: query }]);
+
+    setHistory(prev => [...prev, { type: 'user', text: query, timestamp: new Date().toISOString() }]);
     ws.send(query);
     setQuery('');
     setLoading(true);
+    // Force-scroll to bottom on every new user message
+    setTimeout(() => scrollToBottom('smooth'), 50);
   };
 
   const handleCitationClick = (page: number) => {
@@ -74,35 +131,59 @@ const CopilotPage = () => {
           <div className="p-5 border-b shrink-0">
             <div className="flex items-center justify-between mb-2">
               <h2 className="font-semibold text-lg">Financial Research Copilot</h2>
-              <div className="flex bg-gray-100 rounded-md p-0.5 border">
-                <button 
-                  onClick={() => setMode('ADVISOR')}
-                  className={`px-3 py-1 text-xs font-medium rounded-sm ${mode === 'ADVISOR' ? 'bg-white shadow-sm text-primary' : 'text-gray-500'}`}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setHistory([])}
+                  title="Clear chat history"
+                  className="px-2 py-1 text-xs text-gray-500 hover:text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 rounded-md transition-colors"
                 >
-                  ADVISOR
+                  Clear Chat
                 </button>
-                <button 
-                  onClick={() => setMode('SUMMARY')}
-                  className={`px-3 py-1 text-xs font-medium rounded-sm ${mode === 'SUMMARY' ? 'bg-white shadow-sm text-primary' : 'text-gray-500'}`}
-                >
-                  SUMMARY
-                </button>
+                <div className="flex bg-gray-100 rounded-md p-0.5 border">
+                  <button 
+                    onClick={() => setMode('ADVISOR')}
+                    className={`px-3 py-1 text-xs font-medium rounded-sm ${mode === 'ADVISOR' ? 'bg-white shadow-sm text-primary' : 'text-gray-500'}`}
+                  >
+                    ADVISOR
+                  </button>
+                  <button 
+                    onClick={() => setMode('SUMMARY')}
+                    className={`px-3 py-1 text-xs font-medium rounded-sm ${mode === 'SUMMARY' ? 'bg-white shadow-sm text-primary' : 'text-gray-500'}`}
+                  >
+                    SUMMARY
+                  </button>
+                </div>
               </div>
             </div>
             <p className="text-sm text-gray-500">Ask questions about approved financial documents.</p>
           </div>
 
-          {/* Chat History */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-6">
+          {/* Chat History — scrollable container */}
+          <div
+            id="chat-history"
+            ref={chatContainerRef}
+            onScroll={handleScroll}
+            className="flex-1 overflow-y-auto p-5 space-y-6 relative"
+          >
             {history.map((msg, idx) => (
               msg.type === 'user' ? (
-                <div key={idx} className="flex justify-end">
+                /* ── User message ─────────────────────────────── */
+                <div key={idx} className="flex flex-col items-end space-y-1">
                   <div className="bg-[#EEF2FF] text-gray-900 rounded-lg rounded-tr-none px-4 py-3 text-sm max-w-[85%]">
                     {msg.text}
                   </div>
+                  {/* Timestamp — shown below the bubble */}
+                  <span
+                    id={`msg-time-${idx}`}
+                    className="text-[10px] text-gray-400 select-none"
+                    title={new Date(msg.timestamp).toLocaleString()}
+                  >
+                    {formatTime(msg.timestamp)}
+                  </span>
                 </div>
               ) : (
-                <div key={idx} className="flex flex-col space-y-2">
+                /* ── Bot message ──────────────────────────────── */
+                <div key={idx} className="flex flex-col space-y-1">
                   <div className="flex items-center text-xs text-gray-500 font-medium">
                     <ShieldCheck className="h-4 w-4 mr-1 text-primary" /> 
                     VERIFUND AI
@@ -130,6 +211,14 @@ const CopilotPage = () => {
                       return <span key={i}>{part}</span>;
                     })}
                   </div>
+                  {/* Timestamp — shown below the bubble, left-aligned */}
+                  <span
+                    id={`msg-time-${idx}`}
+                    className="text-[10px] text-gray-400 pl-1 select-none"
+                    title={new Date(msg.timestamp).toLocaleString()}
+                  >
+                    {formatTime(msg.timestamp)}
+                  </span>
                 </div>
               )
             ))}
@@ -142,29 +231,52 @@ const CopilotPage = () => {
                 </div>
               </div>
             )}
+            {/* Invisible anchor used to scroll to the bottom */}
+            <div ref={bottomAnchorRef} aria-hidden="true" />
           </div>
+
+          {/* Scroll-to-bottom floating button */}
+          {showScrollBtn && (
+            <div className="relative">
+              <button
+                id="scroll-to-bottom-btn"
+                onClick={() => scrollToBottom('smooth')}
+                aria-label="Scroll to latest message"
+                className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-white border border-gray-200 shadow-md text-gray-600 text-xs font-medium px-3 py-1.5 rounded-full hover:bg-gray-50 hover:shadow-lg transition-all duration-200 z-10"
+              >
+                <ArrowDown className="h-3.5 w-3.5" />
+                Latest message
+              </button>
+            </div>
+          )}
 
           {/* Input Area */}
           <div className="p-4 border-t shrink-0 bg-gray-50/50">
             <div className="relative border rounded-lg bg-white shadow-sm focus-within:ring-1 focus-within:ring-primary focus-within:border-primary">
               <textarea 
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => setQuery(e.target.value.slice(0, 500))}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleQuery(); } }}
                 className="w-full p-3 pr-12 resize-none h-20 text-sm focus:outline-none rounded-lg"
                 placeholder="Ask a question about funds, fees, eligibility..."
+                maxLength={500}
               />
               <button 
                 onClick={handleQuery}
-                disabled={loading}
-                className="absolute bottom-3 right-3 bg-primary text-white p-2 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
+                disabled={loading || !query.trim()}
+                className="absolute bottom-3 right-3 bg-primary text-white p-2 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Send className="h-4 w-4" />
               </button>
             </div>
-            <p className="text-[10px] text-gray-400 mt-2 uppercase tracking-wide px-1">
-              REGULATORY DISCLOSURE: RESPONSES ARE AI-GENERATED BASED ON APPROVED DOCUMENTS. VERIFY BEFORE CLIENT DISTRIBUTION.
-            </p>
+            <div className="flex items-center justify-between mt-2 px-1">
+              <p className="text-[10px] text-gray-400 uppercase tracking-wide">
+                REGULATORY DISCLOSURE: RESPONSES ARE AI-GENERATED BASED ON APPROVED DOCUMENTS. VERIFY BEFORE CLIENT DISTRIBUTION.
+              </p>
+              <span className={`text-[10px] font-mono ${ query.length >= 450 ? 'text-amber-500' : 'text-gray-400' }`}>
+                {query.length}/500
+              </span>
+            </div>
           </div>
         </div>
 

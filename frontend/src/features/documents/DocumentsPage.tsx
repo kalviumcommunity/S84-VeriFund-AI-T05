@@ -7,6 +7,8 @@ const DocumentsPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [documents, setDocuments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchDocuments();
@@ -29,7 +31,7 @@ const DocumentsPage = () => {
 
     const formData = new FormData();
     formData.append('file', file);
-
+    setUploading(true);
     try {
       await api.post('/documents/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -37,6 +39,9 @@ const DocumentsPage = () => {
       fetchDocuments();
     } catch (error) {
       console.error('Upload failed', error);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -73,9 +78,21 @@ const DocumentsPage = () => {
                 <option>Balanced</option>
               </select>
             </div>
-            <button className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md flex items-center">
+            {/* Hidden file input wired to the Upload button */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.doc,.docx"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="h-9 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-medium rounded-md flex items-center transition-colors"
+            >
               <Upload className="h-4 w-4 mr-2" />
-              Upload Document
+              {uploading ? 'Uploading...' : 'Upload Document'}
             </button>
           </div>
 
@@ -95,6 +112,26 @@ const DocumentsPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y text-gray-700">
+                {loading ? (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-16 text-center text-gray-400">
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
+                        <span className="text-sm">Loading documents...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : documents.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-20 text-center">
+                      <div className="flex flex-col items-center gap-3 text-gray-400">
+                        <FolderOpen className="h-12 w-12 text-gray-300" />
+                        <p className="font-medium text-gray-500">No documents found</p>
+                        <p className="text-sm">Upload a document or adjust your search filters.</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
                 <tr className="hover:bg-gray-50">
                   <td className="px-6 py-4 flex items-start">
                     <FileText className="h-5 w-5 mr-3 text-gray-400 shrink-0 mt-0.5" />
@@ -146,6 +183,7 @@ const DocumentsPage = () => {
                   <td className="px-6 py-4 text-gray-500">Jan 01, 2026</td>
                   <td className="px-6 py-4 text-gray-500">1mo ago</td>
                 </tr>
+                )}
               </tbody>
             </table>
           </div>
