@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Calendar, Bell, Filter, ShieldCheck, AlertTriangle, Download } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../lib/api';
+import Footer from '../../components/layout/Footer';
 
 const AuditPage = () => {
   const [logs, setLogs] = useState<any[]>([]);
@@ -197,14 +198,7 @@ const AuditPage = () => {
       </div>
       
       {/* Footer */}
-      <div className="h-12 border-t flex items-center justify-between px-6 bg-gray-50 text-[11px] text-gray-500 shrink-0">
-        <div>© 2024 VeriFund AI. Regulatory Disclosure: Financial analysis provided by AI models for institutional use only.</div>
-        <div className="flex space-x-4">
-          <a href="#" className="hover:underline">Terms of Service</a>
-          <a href="#" className="hover:underline">Privacy Policy</a>
-          <a href="#" className="hover:underline">Regulatory Compliance</a>
-        </div>
-      </div>
+      <Footer />
     </div>
   );
 };
