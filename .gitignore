@@ -1,0 +1,12 @@
+.neon
+.env.local
+.env
+*.log
+
+# OS & IDE
+.DS_Store
+.vscode/
+.idea/
+
+# General
+node_modules/
