@@ -8,6 +8,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ResponsiveBar } from '@nivo/bar';
 import { ResponsivePie } from '@nivo/pie';
+import { CustomPDFViewer } from './CustomPDFViewer';
 
 // --- Chat Session Types ---
 interface ChatMessage {
@@ -92,6 +93,7 @@ const CopilotPage = () => {
   const docSelectorRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [pageInput, setPageInput] = useState('1');
+  const [navCounter, setNavCounter] = useState(0);
 
   // Persist active session id
   useEffect(() => {
@@ -244,6 +246,7 @@ const CopilotPage = () => {
     setPdfPage(validPage);
     setPdfZoom(zoom);
     setPageInput(String(validPage));
+    setNavCounter(prev => prev + 1);
   }, [pdfZoom]);
 
   const handleCitationClick = (page: number) => {
@@ -776,11 +779,15 @@ const CopilotPage = () => {
                 </button>
               </div>
             ) : pdfUrl ? (
-              <iframe 
-                key={`${activeDocs[0]?.id}-p${pdfPage}-z${pdfZoom}`}
-                src={`${pdfUrl}#page=${pdfPage}&zoom=${pdfZoom}`} 
-                className="w-full h-full border-none"
-                title="PDF Viewer"
+              <CustomPDFViewer 
+                url={pdfUrl}
+                page={pdfPage}
+                zoom={pdfZoom}
+                navCounter={navCounter}
+                onPageChange={(p) => {
+                  setPdfPage(p);
+                  setPageInput(String(p));
+                }}
               />
             ) : (
               <div className="flex items-center justify-center h-full text-gray-400">
