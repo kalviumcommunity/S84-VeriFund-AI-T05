@@ -88,10 +88,10 @@ export const CustomPDFViewer: React.FC<CustomPDFViewerProps> = ({
         onLoadSuccess={onDocumentLoadSuccess} 
         loading={<div className="p-12 text-gray-500 font-medium">Loading document...</div>}
       >
-        {Array.from(new Array(numPages), (el, index) => (
+        {Array.from(new Array(numPages), (_, index) => (
           <div 
             key={`page_${index + 1}`} 
-            ref={el => pageRefs.current[index + 1] = el}
+            ref={(node) => { pageRefs.current[index + 1] = node; }}
             data-page-number={index + 1}
             className="mb-6 shadow-sm bg-white"
           >

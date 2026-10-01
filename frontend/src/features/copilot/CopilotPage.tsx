@@ -240,38 +240,6 @@ const CopilotPage = () => {
     setSocketCounter(prev => prev + 1);
   };
 
-  const handleNewChat = () => {
-    const newId = generateId();
-    const newSession: ChatSession = { id: newId, title: 'New Chat', messages: [], createdAt: Date.now() };
-    setSessions(prev => {
-      const next = [newSession, ...prev];
-      saveSessions(next);
-      return next;
-    });
-    setActiveSessionId(newId);
-  };
-
-  const handleDeleteSession = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setSessions(prev => {
-      const next = prev.filter(s => s.id !== id);
-      saveSessions(next);
-      if (activeSessionId === id) {
-        const newActive = next[0]?.id;
-        if (newActive) {
-          setActiveSessionId(newActive);
-        } else {
-          // Create fresh session
-          const freshId = generateId();
-          const fresh: ChatSession = { id: freshId, title: 'New Chat', messages: [], createdAt: Date.now() };
-          saveSessions([fresh]);
-          setSessions([fresh]);
-          setActiveSessionId(freshId);
-        }
-      }
-      return next;
-    });
-  };
 
   // --- PDF Navigation via React key remount (reliable cross-origin approach) ---
   const navigatePdf = useCallback((page: number, zoom = pdfZoom) => {
@@ -842,32 +810,6 @@ const CopilotPage = () => {
   );
 };
 
-// ── Sidebar Session Item Component ──
-const SessionItem = ({ session, isActive, onSelect, onDelete }: {
-  session: ChatSession;
-  isActive: boolean;
-  onSelect: () => void;
-  onDelete: (e: React.MouseEvent) => void;
-}) => (
-  <div
-    onClick={onSelect}
-    className={`group flex items-center justify-between px-3 py-2 mx-1 rounded-md cursor-pointer transition-colors ${
-      isActive ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-    }`}
-  >
-    <div className="flex items-center space-x-2 min-w-0 flex-1">
-      <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-      <span className="text-xs truncate">{session.title}</span>
-    </div>
-    <button
-      onClick={onDelete}
-      className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-400 transition-all rounded cursor-pointer shrink-0 ml-1"
-      title="Delete chat"
-    >
-      <Trash2 className="h-3 w-3" />
-    </button>
-  </div>
-);
 
 const FileIcon = () => (
   <svg className="w-3 h-3 mr-1 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
