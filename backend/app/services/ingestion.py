@@ -1,7 +1,6 @@
 import os
 import uuid
 import asyncio
-import nest_asyncio
 from typing import List, Dict, Any
 import pdfplumber
 from sqlalchemy.orm import Session
@@ -11,9 +10,6 @@ from app.models.query_log import QueryLog
 from app.models.document_chunk import DocumentChunk
 from app.core.config import settings
 from pinecone import Pinecone
-
-# Initialize nest_asyncio for LlamaParse within FastAPI
-nest_asyncio.apply()
 
 try:
     from llama_parse import LlamaParse
@@ -35,6 +31,9 @@ class DocumentIngestionService:
         chunk it, generate embeddings, and save to Pinecone and Postgres.
         """
         chunks = []
+        # Apply nest_asyncio only here where it's needed (for LlamaParse)
+        import nest_asyncio
+        nest_asyncio.apply()
         # Robust per-page extraction preserving exact page numbers
         print(f"Extracting PDF pages with pdfplumber for {file_path}")
         with pdfplumber.open(file_path) as pdf:
