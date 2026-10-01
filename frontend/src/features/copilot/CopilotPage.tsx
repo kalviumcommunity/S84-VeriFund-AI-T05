@@ -92,8 +92,8 @@ const CopilotPage = () => {
   const [chatWidthPercent, setChatWidthPercent] = useState(42);
   const isDragging = useRef(false);
   const docSelectorRef = useRef<HTMLDivElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [pageInput, setPageInput] = useState('1');
 
   // Persist active session id
   useEffect(() => {
@@ -240,20 +240,16 @@ const CopilotPage = () => {
     });
   };
 
-  // --- PDF Navigation (fixed cross-origin citation jump) ---
+  // --- PDF Navigation via React key remount (reliable cross-origin approach) ---
   const navigatePdf = useCallback((page: number, zoom = pdfZoom) => {
     const validPage = Math.max(1, page);
     setPdfPage(validPage);
-    if (iframeRef.current) {
-      // Rebuild the src with updated hash — most reliable cross-origin approach
-      const base = pdfUrl.split('#')[0];
-      iframeRef.current.src = `${base}#page=${validPage}&zoom=${zoom}`;
-    }
-  }, [pdfUrl, pdfZoom]);
+    setPdfZoom(zoom);
+    setPageInput(String(validPage));
+  }, [pdfZoom]);
 
   const handleCitationClick = (page: number) => {
     if (activeDocs.length > 1) {
-      // Collapse to first doc when clicking citation
       const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
       const docUrl = `${baseUrl}/documents/${activeDocs[0].id}/view`;
       setPdfUrl(docUrl);
@@ -815,11 +811,10 @@ const CopilotPage = () => {
                   <input 
                     type="number"
                     min={1}
-                    value={pdfPage}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value) || 1;
-                      navigatePdf(val, pdfZoom);
-                    }}
+                    value={pageInput}
+                    onChange={(e) => setPageInput(e.target.value)}
+                    onBlur={() => navigatePdf(parseInt(pageInput) || 1, pdfZoom)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') navigatePdf(parseInt(pageInput) || 1, pdfZoom); }}
                     className="w-10 text-center bg-white border rounded text-xs font-medium py-0.5 focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                   <button 
@@ -871,8 +866,7 @@ const CopilotPage = () => {
               </div>
             ) : pdfUrl ? (
               <iframe 
-                ref={iframeRef}
-                key={activeDocs[0]?.id || 'pdf-viewer'}
+                key={`${activeDocs[0]?.id}-p${pdfPage}-z${pdfZoom}`}
                 src={`${pdfUrl}#page=${pdfPage}&zoom=${pdfZoom}`} 
                 className="w-full h-full border-none"
                 title="PDF Viewer"
