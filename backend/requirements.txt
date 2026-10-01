@@ -16,3 +16,4 @@ pydantic[email]
 boto3
 llama-parse
 pydantic-settings
+langchain-huggingface
