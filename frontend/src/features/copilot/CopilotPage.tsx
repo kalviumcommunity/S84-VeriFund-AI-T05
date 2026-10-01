@@ -1,13 +1,40 @@
 import { 
   Search, Send, ShieldCheck, ZoomIn, ZoomOut, CheckCircle2, Square, 
-  Copy, Check, Download, Info, Sparkles, ChevronLeft, ChevronRight 
+  Copy, Check, Download, Info, Sparkles, ChevronLeft, ChevronRight,
+  MessageSquare, Plus, Trash2, Clock, ChevronDown
 } from 'lucide-react';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import api from '../../lib/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ResponsiveBar } from '@nivo/bar';
 import { ResponsivePie } from '@nivo/pie';
+
+// --- Chat Session Types ---
+interface ChatMessage {
+  type: 'user' | 'bot';
+  text: string;
+  score?: number;
+}
+interface ChatSession {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: number;
+}
+
+const generateId = () => Math.random().toString(36).slice(2);
+const SESSIONS_KEY = 'verifund_chat_sessions';
+const ACTIVE_SESSION_KEY = 'verifund_active_session';
+
+const loadSessions = (): ChatSession[] => {
+  try {
+    return JSON.parse(localStorage.getItem(SESSIONS_KEY) || '[]');
+  } catch { return []; }
+};
+const saveSessions = (sessions: ChatSession[]) => {
+  localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+};
 
 const CopilotPage = () => {
   const [mode, setMode] = useState<'ADVISOR' | 'SUMMARY'>('ADVISOR');
@@ -16,7 +43,40 @@ const CopilotPage = () => {
   const savedModel = localStorage.getItem('preferredModel');
   const [model, setModel] = useState((savedModel && VALID_MODELS.includes(savedModel)) ? savedModel : 'gemini-3.8-flash');
   const [loading, setLoading] = useState(false);
-  const [history, setHistory] = useState<{type: 'user' | 'bot', text: string, score?: number}[]>([]);
+  
+  // --- Chat History State ---
+  const [sessions, setSessions] = useState<ChatSession[]>(loadSessions);
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => {
+    const saved = localStorage.getItem(ACTIVE_SESSION_KEY);
+    const all = loadSessions();
+    if (saved && all.some(s => s.id === saved)) return saved;
+    if (all.length > 0) return all[0].id;
+    const newId = generateId();
+    const newSession: ChatSession = { id: newId, title: 'New Chat', messages: [], createdAt: Date.now() };
+    saveSessions([newSession]);
+    return newId;
+  });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  const activeSession = sessions.find(s => s.id === activeSessionId);
+  const history = activeSession?.messages ?? [];
+
+  const updateHistory = useCallback((updater: (prev: ChatMessage[]) => ChatMessage[]) => {
+    setSessions(prev => {
+      const next = prev.map(s => {
+        if (s.id !== activeSessionId) return s;
+        const newMessages = updater(s.messages);
+        // Auto-title from first user message
+        const title = s.title === 'New Chat' && newMessages.length > 0 && newMessages[0].type === 'user'
+          ? newMessages[0].text.slice(0, 40) + (newMessages[0].text.length > 40 ? '…' : '')
+          : s.title;
+        return { ...s, messages: newMessages, title };
+      });
+      saveSessions(next);
+      return next;
+    });
+  }, [activeSessionId]);
+
   const [pdfPage, setPdfPage] = useState<number>(1);
   const [pdfZoom, setPdfZoom] = useState<number>(100);
   const zoomLevels = [75, 100, 125, 150, 200];
@@ -29,12 +89,18 @@ const CopilotPage = () => {
   const [allDocs, setAllDocs] = useState<any[]>([]);
   const [pdfUrl, setPdfUrl] = useState<string>('');
   const [showDocSelector, setShowDocSelector] = useState(false);
-
-  const [chatWidthPercent, setChatWidthPercent] = useState(40);
+  const [chatWidthPercent, setChatWidthPercent] = useState(42);
   const isDragging = useRef(false);
   const docSelectorRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Persist active session id
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_SESSION_KEY, activeSessionId);
+    // Reset page when switching sessions
+    setPdfPage(1);
+  }, [activeSessionId]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -47,20 +113,17 @@ const CopilotPage = () => {
   }, []);
 
   useEffect(() => {
-    // Fetch real documents from backend
     api.get('/documents/').then(res => {
       const docs = res.data;
       if (docs && docs.length > 0) {
         setAllDocs(docs);
         setActiveDocs([docs[0]]);
-        // Use clean proxy URL for PDF viewing (supports #page=X)
         const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
         setPdfUrl(`${baseUrl}/documents/${docs[0].id}/view`);
       }
     }).catch(err => console.error("Failed to load documents", err));
   }, []);
 
-  // Auto-scroll to latest response during streaming
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -96,9 +159,7 @@ const CopilotPage = () => {
       if (!isUnmounted) {
         setConnectionStatus('disconnected');
         reconnectTimeout = setTimeout(() => {
-          if (!isUnmounted) {
-            setSocketCounter(c => c + 1);
-          }
+          if (!isUnmounted) setSocketCounter(c => c + 1);
         }, 3000);
       }
     };
@@ -110,16 +171,13 @@ const CopilotPage = () => {
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'metadata') {
-        setHistory(prev => [...prev, { type: 'bot', text: '', score: Math.round(data.groundedness_score * 100) }]);
+        updateHistory(prev => [...prev, { type: 'bot', text: '', score: Math.round(data.groundedness_score * 100) }]);
       } else if (data.type === 'chunk') {
-        setHistory(prev => {
+        updateHistory(prev => {
           const newHistory = [...prev];
           const lastIdx = newHistory.length - 1;
           if (lastIdx >= 0) {
-            newHistory[lastIdx] = {
-              ...newHistory[lastIdx],
-              text: newHistory[lastIdx].text + data.text
-            };
+            newHistory[lastIdx] = { ...newHistory[lastIdx], text: newHistory[lastIdx].text + data.text };
           }
           return newHistory;
         });
@@ -133,13 +191,12 @@ const CopilotPage = () => {
       clearTimeout(reconnectTimeout);
       socket.close();
     };
-  }, [mode, activeDocs, socketCounter, model]);
+  }, [mode, activeDocs, socketCounter, model, updateHistory]);
 
   const handleQuery = (customText?: string) => {
     const textToSend = customText || query;
     if (!textToSend.trim() || !ws) return;
-    
-    setHistory(prev => [...prev, { type: 'user', text: textToSend }]);
+    updateHistory(prev => [...prev, { type: 'user', text: textToSend }]);
     ws.send(textToSend);
     if (!customText) setQuery('');
     setLoading(true);
@@ -147,37 +204,60 @@ const CopilotPage = () => {
 
   const handleStop = () => {
     setLoading(false);
-    setSocketCounter(prev => prev + 1); // Triggers reconnect
+    setSocketCounter(prev => prev + 1);
   };
 
-  // Smooth PDF navigation without destroying the iframe DOM node
-  const navigatePdf = (page: number, zoom = pdfZoom) => {
+  const handleNewChat = () => {
+    const newId = generateId();
+    const newSession: ChatSession = { id: newId, title: 'New Chat', messages: [], createdAt: Date.now() };
+    setSessions(prev => {
+      const next = [newSession, ...prev];
+      saveSessions(next);
+      return next;
+    });
+    setActiveSessionId(newId);
+  };
+
+  const handleDeleteSession = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSessions(prev => {
+      const next = prev.filter(s => s.id !== id);
+      saveSessions(next);
+      if (activeSessionId === id) {
+        const newActive = next[0]?.id;
+        if (newActive) {
+          setActiveSessionId(newActive);
+        } else {
+          // Create fresh session
+          const freshId = generateId();
+          const fresh: ChatSession = { id: freshId, title: 'New Chat', messages: [], createdAt: Date.now() };
+          saveSessions([fresh]);
+          setSessions([fresh]);
+          setActiveSessionId(freshId);
+        }
+      }
+      return next;
+    });
+  };
+
+  // --- PDF Navigation (fixed cross-origin citation jump) ---
+  const navigatePdf = useCallback((page: number, zoom = pdfZoom) => {
     const validPage = Math.max(1, page);
     setPdfPage(validPage);
-    const targetUrl = `${pdfUrl}#page=${validPage}&zoom=${zoom}`;
     if (iframeRef.current) {
-      try {
-        if (iframeRef.current.contentWindow) {
-          iframeRef.current.contentWindow.location.replace(targetUrl);
-          return;
-        }
-      } catch {
-        // Cross-origin fallback
-      }
-      iframeRef.current.src = targetUrl;
+      // Rebuild the src with updated hash — most reliable cross-origin approach
+      const base = pdfUrl.split('#')[0];
+      iframeRef.current.src = `${base}#page=${validPage}&zoom=${zoom}`;
     }
-  };
+  }, [pdfUrl, pdfZoom]);
 
   const handleCitationClick = (page: number) => {
-    if (activeDocs.length > 0) {
+    if (activeDocs.length > 1) {
+      // Collapse to first doc when clicking citation
       const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
       const docUrl = `${baseUrl}/documents/${activeDocs[0].id}/view`;
-      if (!pdfUrl || activeDocs.length > 1) {
-        setPdfUrl(docUrl);
-        if (activeDocs.length > 1) {
-          setActiveDocs([activeDocs[0]]);
-        }
-      }
+      setPdfUrl(docUrl);
+      setActiveDocs([activeDocs[0]]);
     }
     navigatePdf(page, pdfZoom);
   };
@@ -211,16 +291,14 @@ const CopilotPage = () => {
     if (!container) return;
     const svg = container.querySelector('svg');
     if (!svg) return;
-
     const svgData = new XMLSerializer().serializeToString(svg);
     const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
     const URL = window.URL || window.webkitURL || window;
     const blobURL = URL.createObjectURL(svgBlob);
     const image = new Image();
-
     image.onload = () => {
       const canvas = document.createElement('canvas');
-      const scale = 2; // 2x High-DPI
+      const scale = 2;
       canvas.width = (svg.clientWidth || 800) * scale;
       canvas.height = (svg.clientHeight || 400) * scale;
       const ctx = canvas.getContext('2d');
@@ -248,15 +326,15 @@ const CopilotPage = () => {
     document.body.classList.add('select-none');
     const rightPane = document.getElementById('right-pane');
     if (rightPane) rightPane.style.pointerEvents = 'none';
-    
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
   };
 
   const handleMouseMove = (e: MouseEvent) => {
     if (!isDragging.current) return;
-    const containerWidth = window.innerWidth - 240;
-    const percent = ((e.clientX - 240) / containerWidth) * 100;
+    const sidebarW = sidebarCollapsed ? 48 : 224;
+    const containerWidth = window.innerWidth - sidebarW;
+    const percent = ((e.clientX - sidebarW) / containerWidth) * 100;
     setChatWidthPercent(Math.max(25, Math.min(65, percent)));
   };
 
@@ -266,21 +344,29 @@ const CopilotPage = () => {
     document.body.classList.remove('select-none');
     const rightPane = document.getElementById('right-pane');
     if (rightPane) rightPane.style.pointerEvents = '';
-    
     document.removeEventListener('mousemove', handleMouseMove);
     document.removeEventListener('mouseup', handleMouseUp);
   };
 
+  // Group sessions by date for display
+  const groupedSessions = sessions.reduce<{ today: ChatSession[]; older: ChatSession[] }>(
+    (acc, s) => {
+      const isToday = new Date(s.createdAt).toDateString() === new Date().toDateString();
+      isToday ? acc.today.push(s) : acc.older.push(s);
+      return acc;
+    },
+    { today: [], older: [] }
+  );
+
   return (
     <div className="flex flex-col h-full bg-white">
       {/* Top Navigation / Header */}
-      <div className="h-14 border-b flex items-center justify-between px-6 shrink-0 bg-white">
+      <div className="h-14 border-b flex items-center justify-between px-6 shrink-0 bg-white z-20">
         <div className="flex items-center space-x-3">
           <div className="flex items-center text-primary font-semibold">
             <ShieldCheck className="h-5 w-5 mr-2" />
             VeriFund AI
           </div>
-          {/* Connection Status Indicator */}
           <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium border bg-gray-50">
             <span className={`w-2 h-2 rounded-full ${
               connectionStatus === 'connected' ? 'bg-emerald-500' :
@@ -289,7 +375,6 @@ const CopilotPage = () => {
             <span className="text-gray-600 capitalize">{connectionStatus}</span>
           </div>
         </div>
-
         <div className="relative w-64">
           <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
           <input 
@@ -300,10 +385,87 @@ const CopilotPage = () => {
         </div>
       </div>
 
-      {/* Main Split Screen */}
+      {/* Main Layout */}
       <div className="flex-1 flex overflow-hidden">
-        
-        {/* Left Pane: Chat */}
+
+        {/* ── ChatGPT-Style History Sidebar ── */}
+        <div className={`${sidebarCollapsed ? 'w-12' : 'w-56'} flex flex-col bg-gray-950 text-gray-100 shrink-0 transition-all duration-200 overflow-hidden`}>
+          {/* Sidebar Header */}
+          <div className="flex items-center justify-between p-2 border-b border-gray-800 h-12 shrink-0">
+            {!sidebarCollapsed && (
+              <button
+                onClick={handleNewChat}
+                className="flex items-center space-x-1.5 text-xs font-medium text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 px-2.5 py-1.5 rounded-md transition-colors flex-1 mr-2 cursor-pointer"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>New Chat</span>
+              </button>
+            )}
+            <button
+              onClick={() => setSidebarCollapsed(c => !c)}
+              className="p-1.5 hover:bg-gray-800 rounded-md text-gray-400 hover:text-white transition-colors cursor-pointer shrink-0"
+              title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              <MessageSquare className="h-4 w-4" />
+            </button>
+          </div>
+
+          {!sidebarCollapsed && (
+            <div className="flex-1 overflow-y-auto py-2 space-y-4">
+              {/* New Chat button for collapsed state + today group */}
+              {groupedSessions.today.length > 0 && (
+                <div>
+                  <div className="px-3 py-1 text-[10px] font-semibold text-gray-500 uppercase tracking-wider flex items-center">
+                    <Clock className="h-3 w-3 mr-1" /> Today
+                  </div>
+                  {groupedSessions.today.map(session => (
+                    <SessionItem
+                      key={session.id}
+                      session={session}
+                      isActive={session.id === activeSessionId}
+                      onSelect={() => setActiveSessionId(session.id)}
+                      onDelete={(e) => handleDeleteSession(session.id, e)}
+                    />
+                  ))}
+                </div>
+              )}
+              {groupedSessions.older.length > 0 && (
+                <div>
+                  <div className="px-3 py-1 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+                    Older
+                  </div>
+                  {groupedSessions.older.map(session => (
+                    <SessionItem
+                      key={session.id}
+                      session={session}
+                      isActive={session.id === activeSessionId}
+                      onSelect={() => setActiveSessionId(session.id)}
+                      onDelete={(e) => handleDeleteSession(session.id, e)}
+                    />
+                  ))}
+                </div>
+              )}
+              {sessions.length === 0 && (
+                <div className="px-3 py-4 text-xs text-gray-600 text-center">No chats yet</div>
+              )}
+            </div>
+          )}
+
+          {/* Collapsed: just new chat icon */}
+          {sidebarCollapsed && (
+            <div className="flex-1 flex flex-col items-center pt-2">
+              <button
+                onClick={handleNewChat}
+                className="p-1.5 hover:bg-gray-800 rounded-md text-gray-400 hover:text-white transition-colors cursor-pointer"
+                title="New chat"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* ── Chat Pane ── */}
         <div style={{ width: `${chatWidthPercent}%` }} className="flex flex-col bg-white shrink-0">
           <div className="p-5 border-b shrink-0">
             <div className="flex items-center justify-between mb-2">
@@ -326,7 +488,7 @@ const CopilotPage = () => {
             <p className="text-sm text-gray-500">Ask questions about approved financial documents.</p>
           </div>
 
-          {/* Chat History */}
+          {/* Chat Messages */}
           <div className="flex-1 overflow-y-auto p-5 space-y-6">
             {history.map((msg, idx) => (
               msg.type === 'user' ? (
@@ -356,7 +518,6 @@ const CopilotPage = () => {
                         </div>
                       )}
                     </div>
-                    {/* Copy Button */}
                     <button
                       onClick={() => handleCopyMessage(msg.text, idx)}
                       className="flex items-center text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100 transition-colors"
@@ -406,7 +567,6 @@ const CopilotPage = () => {
                               const parsed = JSON.parse(String(children).replace(/\n$/, ''));
                               if (parsed.type === 'chart' && parsed.data && parsed.data.length > 0) {
                                 const keys = Object.keys(parsed.data[0]).filter(k => k !== 'year');
-                                // Sanitize data in case string values with % were provided
                                 const cleanData = parsed.data.map((item: any) => {
                                   const cleaned: any = { ...item };
                                   keys.forEach(k => {
@@ -416,93 +576,30 @@ const CopilotPage = () => {
                                   });
                                   return cleaned;
                                 });
-
-                                // Compute symmetric min/max around 0 when negative values exist
                                 const allValues = cleanData.flatMap((d: any) => keys.map(k => Number(d[k]) || 0));
                                 const dataMin = Math.min(...allValues);
                                 const dataMax = Math.max(...allValues);
                                 const hasNegative = dataMin < 0;
-
                                 let chartMin: number;
                                 let chartMax: number;
-
                                 if (hasNegative) {
                                   const absMax = Math.max(Math.abs(dataMin), Math.abs(dataMax));
                                   const ceilVal = Math.ceil(absMax + 1);
                                   const bound = ceilVal % 2 === 0 ? ceilVal : ceilVal + 1;
-                                  chartMin = -bound;
-                                  chartMax = bound;
+                                  chartMin = -bound; chartMax = bound;
                                 } else {
-                                  chartMin = 0;
-                                  chartMax = Math.ceil(dataMax + 1);
+                                  chartMin = 0; chartMax = Math.ceil(dataMax + 1);
                                 }
-
                                 const chartId = `bar-chart-${idx}`;
-
                                 return (
                                   <div id={chartId} className="h-[410px] my-6 w-full not-prose bg-white p-4 border rounded-xl shadow-sm">
                                     <div className="flex items-center justify-between mb-2">
                                       <h4 className="font-semibold text-sm text-gray-700">Historical Return Comparison</h4>
-                                      <button
-                                        onClick={() => exportChartAsPng(chartId, 'historical-returns.png')}
-                                        className="flex items-center text-xs text-gray-500 hover:text-primary bg-gray-50 hover:bg-blue-50 border border-gray-200 rounded px-2 py-1 transition-colors cursor-pointer"
-                                        title="Download chart as PNG"
-                                      >
+                                      <button onClick={() => exportChartAsPng(chartId, 'historical-returns.png')} className="flex items-center text-xs text-gray-500 hover:text-primary bg-gray-50 hover:bg-blue-50 border border-gray-200 rounded px-2 py-1 transition-colors cursor-pointer" title="Download chart as PNG">
                                         <Download className="h-3.5 w-3.5 mr-1" /> Export PNG
                                       </button>
                                     </div>
-                                    <ResponsiveBar
-                                      data={cleanData}
-                                      keys={keys}
-                                      indexBy="year"
-                                      margin={{ top: 40, right: 25, bottom: 70, left: 60 }}
-                                      padding={0.4}
-                                      groupMode="grouped"
-                                      colors={{ scheme: 'set2' }}
-                                      borderRadius={2}
-                                      valueScale={{ type: 'linear', min: chartMin, max: chartMax }}
-                                      indexScale={{ type: 'band', round: true }}
-                                      valueFormat={v => `${v}%`}
-                                      axisBottom={{ 
-                                        tickSize: 5, 
-                                        tickPadding: 8, 
-                                        tickRotation: -45 
-                                      }}
-                                      axisLeft={{ 
-                                        tickSize: 5, 
-                                        tickPadding: 5, 
-                                        tickRotation: 0,
-                                        format: v => `${v}%`
-                                      }}
-                                      enableLabel={true}
-                                      labelSkipWidth={12}
-                                      labelSkipHeight={12}
-                                      labelTextColor={{ from: 'color', modifiers: [['darker', 1.6]] }}
-                                      markers={[{
-                                        axis: 'y',
-                                        value: 0,
-                                        lineStyle: { stroke: '#64748b', strokeWidth: 1.5, strokeDasharray: '4 4' },
-                                      }]}
-                                      legends={[{
-                                        dataFrom: 'keys',
-                                        anchor: 'top-right',
-                                        direction: 'row',
-                                        justify: false,
-                                        translateX: 0,
-                                        translateY: -30,
-                                        itemsSpacing: 10,
-                                        itemWidth: 110,
-                                        itemHeight: 20,
-                                        symbolSize: 12,
-                                      }]}
-                                      theme={{
-                                        axis: {
-                                          ticks: {
-                                            text: { fontSize: 11 }
-                                          }
-                                        }
-                                      }}
-                                    />
+                                    <ResponsiveBar data={cleanData} keys={keys} indexBy="year" margin={{ top: 40, right: 25, bottom: 70, left: 60 }} padding={0.4} groupMode="grouped" colors={{ scheme: 'set2' }} borderRadius={2} valueScale={{ type: 'linear', min: chartMin, max: chartMax }} indexScale={{ type: 'band', round: true }} valueFormat={v => `${v}%`} axisBottom={{ tickSize: 5, tickPadding: 8, tickRotation: -45 }} axisLeft={{ tickSize: 5, tickPadding: 5, tickRotation: 0, format: v => `${v}%` }} enableLabel={true} labelSkipWidth={12} labelSkipHeight={12} labelTextColor={{ from: 'color', modifiers: [['darker', 1.6]] }} markers={[{ axis: 'y', value: 0, lineStyle: { stroke: '#64748b', strokeWidth: 1.5, strokeDasharray: '4 4' } }]} legends={[{ dataFrom: 'keys', anchor: 'top-right', direction: 'row', justify: false, translateX: 0, translateY: -30, itemsSpacing: 10, itemWidth: 110, itemHeight: 20, symbolSize: 12 }]} theme={{ axis: { ticks: { text: { fontSize: 11 } } } }} />
                                   </div>
                                 );
                               }
@@ -512,36 +609,16 @@ const CopilotPage = () => {
                                   <div id={chartId} className="h-[320px] my-6 w-full not-prose bg-white p-4 border rounded-xl shadow-sm">
                                     <div className="flex items-center justify-between mb-2">
                                       <h4 className="font-semibold text-sm text-gray-700">Asset Allocation</h4>
-                                      <button
-                                        onClick={() => exportChartAsPng(chartId, 'asset-allocation.png')}
-                                        className="flex items-center text-xs text-gray-500 hover:text-primary bg-gray-50 hover:bg-blue-50 border border-gray-200 rounded px-2 py-1 transition-colors cursor-pointer"
-                                        title="Download chart as PNG"
-                                      >
+                                      <button onClick={() => exportChartAsPng(chartId, 'asset-allocation.png')} className="flex items-center text-xs text-gray-500 hover:text-primary bg-gray-50 hover:bg-blue-50 border border-gray-200 rounded px-2 py-1 transition-colors cursor-pointer" title="Download chart as PNG">
                                         <Download className="h-3.5 w-3.5 mr-1" /> Export PNG
                                       </button>
                                     </div>
-                                    <ResponsivePie
-                                      data={parsed.data}
-                                      margin={{ top: 20, right: 80, bottom: 40, left: 80 }}
-                                      innerRadius={0.5}
-                                      padAngle={0.7}
-                                      cornerRadius={3}
-                                      activeOuterRadiusOffset={8}
-                                      colors={{ scheme: 'nivo' }}
-                                      borderWidth={1}
-                                      borderColor={{ from: 'color', modifiers: [ [ 'darker', 0.2 ] ] }}
-                                      arcLinkLabelsSkipAngle={10}
-                                      arcLinkLabelsTextColor="#333333"
-                                      arcLinkLabelsThickness={2}
-                                      arcLinkLabelsColor={{ from: 'color' }}
-                                      arcLabelsSkipAngle={10}
-                                      arcLabelsTextColor={{ from: 'color', modifiers: [ [ 'darker', 2 ] ] }}
-                                    />
+                                    <ResponsivePie data={parsed.data} margin={{ top: 20, right: 80, bottom: 40, left: 80 }} innerRadius={0.5} padAngle={0.7} cornerRadius={3} activeOuterRadiusOffset={8} colors={{ scheme: 'nivo' }} borderWidth={1} borderColor={{ from: 'color', modifiers: [['darker', 0.2]] }} arcLinkLabelsSkipAngle={10} arcLinkLabelsTextColor="#333333" arcLinkLabelsThickness={2} arcLinkLabelsColor={{ from: 'color' }} arcLabelsSkipAngle={10} arcLabelsTextColor={{ from: 'color', modifiers: [['darker', 2]] }} />
                                   </div>
                                 );
                               }
                             } catch {
-                              // normal code block if json fails
+                              // normal code block
                             }
                           }
                           return <code {...rest} className={className}>{children}</code>;
@@ -566,7 +643,6 @@ const CopilotPage = () => {
               </div>
             )}
 
-            {/* Empty State: Prompt Starter Chips */}
             {history.length === 0 && !loading && (
               <div className="flex flex-col items-center justify-center my-auto py-8">
                 <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-primary mb-3">
@@ -598,7 +674,6 @@ const CopilotPage = () => {
               </div>
             )}
 
-            {/* Scroll anchor */}
             <div ref={messagesEndRef} />
           </div>
 
@@ -668,7 +743,7 @@ const CopilotPage = () => {
                   : activeDocs.length === 1 
                     ? activeDocs[0].title 
                     : `Comparing ${activeDocs.length} Documents`}
-                <span className="ml-2 text-gray-400 text-xs">▼</span>
+                <ChevronDown className="ml-2 h-3.5 w-3.5 text-gray-400" />
               </button>
               
               {showDocSelector && (
@@ -726,7 +801,6 @@ const CopilotPage = () => {
                 </div>
               )}
 
-              {/* Page Jump Controls */}
               {activeDocs.length === 1 && (
                 <div className="flex items-center border rounded bg-gray-50 px-1 py-0.5 space-x-1 text-xs">
                   <button 
@@ -758,23 +832,12 @@ const CopilotPage = () => {
                 </div>
               )}
 
-              {/* Zoom Controls */}
               <div className="flex items-center border rounded bg-gray-50">
-                <button 
-                  onClick={handleZoomOut}
-                  disabled={pdfZoom <= zoomLevels[0]}
-                  className="p-1 hover:bg-gray-200 rounded-l disabled:opacity-30 cursor-pointer"
-                  title="Zoom out"
-                >
+                <button onClick={handleZoomOut} disabled={pdfZoom <= zoomLevels[0]} className="p-1 hover:bg-gray-200 rounded-l disabled:opacity-30 cursor-pointer" title="Zoom out">
                   <ZoomOut className="h-4 w-4" />
                 </button>
                 <span className="px-2 text-xs font-medium text-gray-700">{pdfZoom}%</span>
-                <button 
-                  onClick={handleZoomIn}
-                  disabled={pdfZoom >= zoomLevels[zoomLevels.length - 1]}
-                  className="p-1 hover:bg-gray-200 rounded-r disabled:opacity-30 cursor-pointer"
-                  title="Zoom in"
-                >
+                <button onClick={handleZoomIn} disabled={pdfZoom >= zoomLevels[zoomLevels.length - 1]} className="p-1 hover:bg-gray-200 rounded-r disabled:opacity-30 cursor-pointer" title="Zoom in">
                   <ZoomIn className="h-4 w-4" />
                 </button>
               </div>
@@ -795,7 +858,7 @@ const CopilotPage = () => {
                 <button 
                   onClick={() => {
                     if (ws && !loading) {
-                      setHistory(prev => [...prev, { type: 'user', text: `Compare ${activeDocs.length} documents` }]);
+                      updateHistory(prev => [...prev, { type: 'user', text: `Compare ${activeDocs.length} documents` }]);
                       ws.send("__COMPARE__");
                       setLoading(true);
                     }
@@ -821,11 +884,37 @@ const CopilotPage = () => {
             )}
           </div>
         </div>
-
       </div>
     </div>
   );
 };
+
+// ── Sidebar Session Item Component ──
+const SessionItem = ({ session, isActive, onSelect, onDelete }: {
+  session: ChatSession;
+  isActive: boolean;
+  onSelect: () => void;
+  onDelete: (e: React.MouseEvent) => void;
+}) => (
+  <div
+    onClick={onSelect}
+    className={`group flex items-center justify-between px-3 py-2 mx-1 rounded-md cursor-pointer transition-colors ${
+      isActive ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+    }`}
+  >
+    <div className="flex items-center space-x-2 min-w-0 flex-1">
+      <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+      <span className="text-xs truncate">{session.title}</span>
+    </div>
+    <button
+      onClick={onDelete}
+      className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-400 transition-all rounded cursor-pointer shrink-0 ml-1"
+      title="Delete chat"
+    >
+      <Trash2 className="h-3 w-3" />
+    </button>
+  </div>
+);
 
 const FileIcon = () => (
   <svg className="w-3 h-3 mr-1 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
