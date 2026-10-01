@@ -49,6 +49,13 @@ const Sidebar = () => {
   }, []);
 
   const handleNewChat = () => {
+    const existingEmpty = sessions.find(s => s.messages.length === 0 && s.title === 'New Chat');
+    if (existingEmpty) {
+      localStorage.setItem(ACTIVE_SESSION_KEY, existingEmpty.id);
+      setActiveId(existingEmpty.id);
+      return;
+    }
+
     const newId = generateId();
     const fresh: ChatSession = { id: newId, title: 'New Chat', messages: [], createdAt: Date.now() };
     const next = [fresh, ...sessions];
@@ -59,6 +66,16 @@ const Sidebar = () => {
   };
 
   const handleSelectSession = (id: string) => {
+    if (id === activeId) return;
+
+    let nextSessions = [...sessions];
+    const currentSession = sessions.find(s => s.id === activeId);
+    if (currentSession && currentSession.messages.length === 0 && currentSession.title === 'New Chat') {
+      nextSessions = sessions.filter(s => s.id !== activeId);
+      saveSessions(nextSessions);
+      setSessions(nextSessions);
+    }
+
     localStorage.setItem(ACTIVE_SESSION_KEY, id);
     setActiveId(id);
   };

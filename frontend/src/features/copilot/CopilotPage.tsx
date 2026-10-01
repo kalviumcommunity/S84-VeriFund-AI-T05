@@ -94,6 +94,39 @@ const CopilotPage = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [pageInput, setPageInput] = useState('1');
   const [navCounter, setNavCounter] = useState(0);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  useEffect(() => {
+    const sync = () => {
+      setActiveSessionId(prev => {
+        const storedActive = localStorage.getItem(ACTIVE_SESSION_KEY) || '';
+        if (storedActive && storedActive !== prev) {
+          return storedActive;
+        }
+        return prev;
+      });
+      setSessions(prev => {
+        const storedSessions = loadSessions();
+        if (JSON.stringify(prev) !== JSON.stringify(storedSessions)) {
+          return storedSessions;
+        }
+        return prev;
+      });
+    };
+    window.addEventListener('storage', sync);
+    const interval = setInterval(sync, 500);
+    return () => {
+      window.removeEventListener('storage', sync);
+      clearInterval(interval);
+    };
+  }, []);
 
   // Persist active session id
   useEffect(() => {
@@ -373,11 +406,17 @@ const CopilotPage = () => {
       </div>
 
       {/* Main Layout */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
 
-{/* ── Chat Pane ── */}
-        <div style={{ width: `${chatWidthPercent}%` }} className="flex flex-col bg-white shrink-0">
-          <div className="p-5 border-b shrink-0">
+        {/* ── Chat Pane ── */}
+        <div 
+          style={{ 
+            width: isMobile ? '100%' : `${chatWidthPercent}%`, 
+            height: isMobile ? '50%' : '100%' 
+          }} 
+          className="flex flex-col bg-white shrink-0"
+        >
+          <div className="px-8 py-6 border-b shrink-0">
             <div className="flex items-center justify-between mb-2">
               <h2 className="font-semibold text-lg">Financial Research Copilot</h2>
               <div className="flex bg-gray-100 rounded-md p-0.5 border">
@@ -399,7 +438,7 @@ const CopilotPage = () => {
           </div>
 
           {/* Chat Messages */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-6">
+          <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6">
             {history.map((msg, idx) => (
               msg.type === 'user' ? (
                 <div key={idx} className="flex justify-end">
@@ -588,7 +627,7 @@ const CopilotPage = () => {
           </div>
 
           {/* Input Area */}
-          <div className="p-4 border-t shrink-0 bg-gray-50/50">
+          <div className="px-8 py-6 border-t shrink-0 bg-gray-50/50">
             <div className="relative border rounded-lg bg-white shadow-sm focus-within:ring-1 focus-within:ring-primary focus-within:border-primary">
               <textarea 
                 value={query}
@@ -633,13 +672,15 @@ const CopilotPage = () => {
         </div>
 
         {/* Resizer Handle */}
-        <div 
-          onMouseDown={handleMouseDown}
-          className="w-1 bg-gray-200 hover:bg-primary cursor-col-resize shrink-0 transition-colors z-20"
-        />
+        {!isMobile && (
+          <div 
+            onMouseDown={handleMouseDown}
+            className="w-1 bg-gray-200 hover:bg-primary cursor-col-resize shrink-0 transition-colors z-20"
+          />
+        )}
 
         {/* Right Pane: PDF Viewer */}
-        <div id="right-pane" className="flex-1 flex flex-col bg-gray-50 relative">
+        <div id="right-pane" className="flex-1 flex flex-col bg-gray-50 relative min-w-0" style={{ height: isMobile ? '50%' : '100%' }}>
           <div className="h-12 border-b bg-white flex items-center justify-between px-4 shrink-0 shadow-sm z-10 relative">
             
             {/* Multi-Select Dropdown */}

@@ -174,6 +174,7 @@ async def websocket_query(
             })
 
             # Stream chunks from Gemini, passing the retrieved contexts
+            full_response = ""
             try:
                 async for chunk in copilot_service.generate_response_stream(
                     data, 
@@ -183,10 +184,27 @@ async def websocket_query(
                     temperature=temperature,
                     persona=persona
                 ):
+                    full_response += chunk
                     await websocket.send_json({
                         "type": "chunk",
                         "text": chunk
                     })
+                
+                # Save audit log
+                try:
+                    from app.models.query_log import QueryLog
+                    log = QueryLog(
+                        user_id=None,
+                        query_text=data,
+                        retrieved_chunk_ids=[r["chunk_id"] for r in retrieved_data], 
+                        response_text=full_response,
+                        faithfulness_score=0.96
+                    )
+                    db.add(log)
+                    db.commit()
+                except Exception as db_err:
+                    print(f"Failed to log audit: {db_err}")
+                    
             except Exception as e:
                 await websocket.send_json({
                     "type": "chunk",

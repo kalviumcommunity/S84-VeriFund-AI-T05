@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
-import 'react-pdf/dist/esm/Page/TextLayer.css';
+import 'react-pdf/dist/Page/AnnotationLayer.css';
+import 'react-pdf/dist/Page/TextLayer.css';
 
 // Set up the PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -82,7 +82,7 @@ export const CustomPDFViewer: React.FC<CustomPDFViewerProps> = ({
   };
 
   return (
-    <div ref={containerRef} className="w-full h-full overflow-y-auto bg-[#F1F5F9] flex flex-col items-center pt-8 pb-12 relative">
+    <div ref={containerRef} className="w-full h-full overflow-auto bg-[#F1F5F9] flex flex-col items-center pt-8 pb-12 relative">
       <Document 
         file={url} 
         onLoadSuccess={onDocumentLoadSuccess} 
