@@ -3,7 +3,7 @@ uvicorn
 sqlalchemy
 alembic
 psycopg2-binary
-pyjwt
+python-jose[cryptography]
 passlib[bcrypt]
 pdfplumber
 sentence-transformers
