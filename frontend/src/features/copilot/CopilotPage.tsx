@@ -54,7 +54,8 @@ const CopilotPage = () => {
         setAllDocs(docs);
         setActiveDocs([docs[0]]);
         // Use clean proxy URL for PDF viewing (supports #page=X)
-        setPdfUrl(`http://localhost:8000/api/v1/documents/${docs[0].id}/view`);
+        const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+        setPdfUrl(`${baseUrl}/documents/${docs[0].id}/view`);
       }
     }).catch(err => console.error("Failed to load documents", err));
   }, []);
@@ -73,7 +74,9 @@ const CopilotPage = () => {
     const persona = mode === 'SUMMARY' ? 'client' : 'advisor';
     const docIds = activeDocs.map(d => d.id).join(',');
     
-    let wsUrl = `ws://localhost:8000/api/v1/copilot/ws/query?model=${model}&strict_mode=${strictMode}&temperature=${temperature}&persona=${persona}`;
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+    const wsBaseUrl = baseUrl.replace(/^http/, 'ws');
+    let wsUrl = `${wsBaseUrl}/copilot/ws/query?model=${model}&strict_mode=${strictMode}&temperature=${temperature}&persona=${persona}`;
     if (docIds) {
       wsUrl += `&document_ids=${docIds}`;
     }
@@ -167,7 +170,8 @@ const CopilotPage = () => {
 
   const handleCitationClick = (page: number) => {
     if (activeDocs.length > 0) {
-      const docUrl = `http://localhost:8000/api/v1/documents/${activeDocs[0].id}/view`;
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+      const docUrl = `${baseUrl}/documents/${activeDocs[0].id}/view`;
       if (!pdfUrl || activeDocs.length > 1) {
         setPdfUrl(docUrl);
         if (activeDocs.length > 1) {
@@ -684,14 +688,16 @@ const CopilotPage = () => {
                               const remaining = activeDocs.filter(d => d.id !== doc.id);
                               setActiveDocs(remaining);
                               if (remaining.length === 1) {
-                                setPdfUrl(`http://localhost:8000/api/v1/documents/${remaining[0].id}/view`);
+                                const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+                                setPdfUrl(`${baseUrl}/documents/${remaining[0].id}/view`);
                               }
                             }
                           } else {
                             const newActive = [...activeDocs, doc];
                             setActiveDocs(newActive);
                             if (newActive.length === 1) {
-                              setPdfUrl(`http://localhost:8000/api/v1/documents/${doc.id}/view`);
+                              const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+                              setPdfUrl(`${baseUrl}/documents/${doc.id}/view`);
                             }
                           }
                         }}
