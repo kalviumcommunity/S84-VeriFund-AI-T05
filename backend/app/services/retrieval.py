@@ -8,12 +8,19 @@ from app.models.document import Document
 
 class RagService:
     def __init__(self):
-        self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        self._embeddings = None
         if settings.PINECONE_API_KEY:
             pc = Pinecone(api_key=settings.PINECONE_API_KEY)
             self.index = pc.Index(settings.PINECONE_INDEX_NAME)
         else:
             self.index = None
+
+    @property
+    def embeddings(self):
+        if self._embeddings is None:
+            from langchain_huggingface import HuggingFaceEmbeddings
+            self._embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        return self._embeddings
 
     def retrieve_chunks(
         self, 

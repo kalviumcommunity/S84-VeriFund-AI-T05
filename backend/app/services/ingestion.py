@@ -22,9 +22,12 @@ except ImportError:
 
 class DocumentIngestionService:
     def __init__(self):
-        # Use shared embedding model and Pinecone index to save memory
-        self.embeddings = rag_service.embeddings
+        # Use shared Pinecone index to save memory
         self.index = rag_service.index
+        
+    @property
+    def embeddings(self):
+        return rag_service.embeddings
 
     def process_pdf(self, file_path: str, document_id: str, db: Session) -> bool:
         """
