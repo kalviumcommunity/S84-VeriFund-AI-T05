@@ -1,7 +1,6 @@
 import { 
   Search, Send, ShieldCheck, ZoomIn, ZoomOut, CheckCircle2, Square, 
-  Copy, Check, Download, Info, Sparkles, ChevronLeft, ChevronRight,
-  MessageSquare, Plus, Trash2, Clock, ChevronDown
+  Copy, Check, Download, Info, Sparkles, ChevronLeft, ChevronRight, ChevronDown
 } from 'lucide-react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import api from '../../lib/api';
@@ -56,7 +55,6 @@ const CopilotPage = () => {
     saveSessions([newSession]);
     return newId;
   });
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const activeSession = sessions.find(s => s.id === activeSessionId);
   const history = activeSession?.messages ?? [];
@@ -328,9 +326,8 @@ const CopilotPage = () => {
 
   const handleMouseMove = (e: MouseEvent) => {
     if (!isDragging.current) return;
-    const sidebarW = sidebarCollapsed ? 48 : 224;
-    const containerWidth = window.innerWidth - sidebarW;
-    const percent = ((e.clientX - sidebarW) / containerWidth) * 100;
+    const containerWidth = window.innerWidth - 240; // fixed app sidebar width
+    const percent = ((e.clientX - 240) / containerWidth) * 100;
     setChatWidthPercent(Math.max(25, Math.min(65, percent)));
   };
 
@@ -344,15 +341,6 @@ const CopilotPage = () => {
     document.removeEventListener('mouseup', handleMouseUp);
   };
 
-  // Group sessions by date for display
-  const groupedSessions = sessions.reduce<{ today: ChatSession[]; older: ChatSession[] }>(
-    (acc, s) => {
-      const isToday = new Date(s.createdAt).toDateString() === new Date().toDateString();
-      isToday ? acc.today.push(s) : acc.older.push(s);
-      return acc;
-    },
-    { today: [], older: [] }
-  );
 
   return (
     <div className="flex flex-col h-full bg-white">
@@ -384,84 +372,7 @@ const CopilotPage = () => {
       {/* Main Layout */}
       <div className="flex-1 flex overflow-hidden">
 
-        {/* ── ChatGPT-Style History Sidebar ── */}
-        <div className={`${sidebarCollapsed ? 'w-12' : 'w-56'} flex flex-col bg-gray-950 text-gray-100 shrink-0 transition-all duration-200 overflow-hidden`}>
-          {/* Sidebar Header */}
-          <div className="flex items-center justify-between p-2 border-b border-gray-800 h-12 shrink-0">
-            {!sidebarCollapsed && (
-              <button
-                onClick={handleNewChat}
-                className="flex items-center space-x-1.5 text-xs font-medium text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 px-2.5 py-1.5 rounded-md transition-colors flex-1 mr-2 cursor-pointer"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>New Chat</span>
-              </button>
-            )}
-            <button
-              onClick={() => setSidebarCollapsed(c => !c)}
-              className="p-1.5 hover:bg-gray-800 rounded-md text-gray-400 hover:text-white transition-colors cursor-pointer shrink-0"
-              title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            >
-              <MessageSquare className="h-4 w-4" />
-            </button>
-          </div>
-
-          {!sidebarCollapsed && (
-            <div className="flex-1 overflow-y-auto py-2 space-y-4">
-              {/* New Chat button for collapsed state + today group */}
-              {groupedSessions.today.length > 0 && (
-                <div>
-                  <div className="px-3 py-1 text-[10px] font-semibold text-gray-500 uppercase tracking-wider flex items-center">
-                    <Clock className="h-3 w-3 mr-1" /> Today
-                  </div>
-                  {groupedSessions.today.map(session => (
-                    <SessionItem
-                      key={session.id}
-                      session={session}
-                      isActive={session.id === activeSessionId}
-                      onSelect={() => setActiveSessionId(session.id)}
-                      onDelete={(e) => handleDeleteSession(session.id, e)}
-                    />
-                  ))}
-                </div>
-              )}
-              {groupedSessions.older.length > 0 && (
-                <div>
-                  <div className="px-3 py-1 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-                    Older
-                  </div>
-                  {groupedSessions.older.map(session => (
-                    <SessionItem
-                      key={session.id}
-                      session={session}
-                      isActive={session.id === activeSessionId}
-                      onSelect={() => setActiveSessionId(session.id)}
-                      onDelete={(e) => handleDeleteSession(session.id, e)}
-                    />
-                  ))}
-                </div>
-              )}
-              {sessions.length === 0 && (
-                <div className="px-3 py-4 text-xs text-gray-600 text-center">No chats yet</div>
-              )}
-            </div>
-          )}
-
-          {/* Collapsed: just new chat icon */}
-          {sidebarCollapsed && (
-            <div className="flex-1 flex flex-col items-center pt-2">
-              <button
-                onClick={handleNewChat}
-                className="p-1.5 hover:bg-gray-800 rounded-md text-gray-400 hover:text-white transition-colors cursor-pointer"
-                title="New chat"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* ── Chat Pane ── */}
+{/* ── Chat Pane ── */}
         <div style={{ width: `${chatWidthPercent}%` }} className="flex flex-col bg-white shrink-0">
           <div className="p-5 border-b shrink-0">
             <div className="flex items-center justify-between mb-2">
