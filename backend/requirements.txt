@@ -6,7 +6,6 @@ psycopg[binary]
 python-jose[cryptography]
 bcrypt
 pdfplumber
-sentence-transformers
 pinecone
 python-dotenv
 google-genai
@@ -16,4 +15,3 @@ pydantic[email]
 boto3
 llama-parse
 pydantic-settings
-langchain-huggingface

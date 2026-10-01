@@ -1,10 +1,43 @@
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
 from pinecone import Pinecone
-from langchain_huggingface import HuggingFaceEmbeddings
 from app.core.config import settings
 from app.models.document_chunk import DocumentChunk
 from app.models.document import Document
+
+
+class GeminiEmbeddings:
+    """
+    Lightweight API-based embeddings using Google's text-embedding-004 model.
+    Uses no local RAM - just HTTP calls to Google's API.
+    Outputs 384-dimensional vectors to stay compatible with the Pinecone index.
+    """
+    EMBEDDING_MODEL = "text-embedding-004"
+    OUTPUT_DIM = 384
+
+    def __init__(self, api_key: str):
+        from google import genai
+        self.client = genai.Client(api_key=api_key)
+
+    def embed_query(self, text: str) -> List[float]:
+        result = self.client.models.embed_content(
+            model=self.EMBEDDING_MODEL,
+            contents=text,
+            config={"output_dimensionality": self.OUTPUT_DIM}
+        )
+        return result.embeddings[0].values
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        embeddings = []
+        for text in texts:
+            result = self.client.models.embed_content(
+                model=self.EMBEDDING_MODEL,
+                contents=text,
+                config={"output_dimensionality": self.OUTPUT_DIM}
+            )
+            embeddings.append(result.embeddings[0].values)
+        return embeddings
+
 
 class RagService:
     def __init__(self):
@@ -18,8 +51,7 @@ class RagService:
     @property
     def embeddings(self):
         if self._embeddings is None:
-            from langchain_huggingface import HuggingFaceEmbeddings
-            self._embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+            self._embeddings = GeminiEmbeddings(api_key=settings.GEMINI_API_KEY)
         return self._embeddings
 
     def retrieve_chunks(
