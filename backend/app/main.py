@@ -16,7 +16,7 @@ app = FastAPI(
 
 # Set all CORS enabled origins
 frontend_url = os.getenv("FRONTEND_URL", "")
-origins = ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"]
+origins = ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "https://veri-fund-ai.vercel.app"]
 if frontend_url:
     origins.extend([url.strip() for url in frontend_url.split(",")])
 

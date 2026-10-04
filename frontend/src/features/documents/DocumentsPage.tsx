@@ -17,7 +17,7 @@ const DocumentsPage = () => {
 
   const fetchDocuments = async () => {
     try {
-      const response = await api.get('/documents');
+      const response = await api.get('/documents/');
       setDocuments(response.data);
     } catch (error) {
       console.error('Failed to fetch documents', error);
