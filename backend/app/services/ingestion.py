@@ -31,10 +31,7 @@ class DocumentIngestionService:
         chunk it, generate embeddings, and save to Pinecone and Postgres.
         """
         chunks = []
-        # Apply nest_asyncio only here where it's needed (for LlamaParse)
-        import nest_asyncio
-        nest_asyncio.apply()
-        # Robust per-page extraction preserving exact page numbers
+        # Apply nest_asyncio removed to prevent NoEventLoopError on subsequent requests
         print(f"Extracting PDF pages with pdfplumber for {file_path}")
         with pdfplumber.open(file_path) as pdf:
             for page_num, page in enumerate(pdf.pages, start=1):

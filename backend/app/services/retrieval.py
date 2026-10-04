@@ -12,7 +12,7 @@ class GeminiEmbeddings:
     Uses no local RAM - just HTTP calls to Google's API.
     Outputs 384-dimensional vectors to stay compatible with the Pinecone index.
     """
-    EMBEDDING_MODEL = "text-embedding-004"
+    EMBEDDING_MODEL = "models/embedding-001"
     OUTPUT_DIM = 384
 
     def __init__(self, api_key: str):
