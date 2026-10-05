@@ -20,6 +20,15 @@ class CopilotService:
         elif settings.GEMINI_API_KEY:
             self.genai_client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
+        # Initialize Groq client if key is available
+        self.groq_client = None
+        if settings.GROQ_API_KEY:
+            try:
+                from groq import Groq
+                self.groq_client = Groq(api_key=settings.GROQ_API_KEY)
+            except ImportError:
+                print("Groq package not installed. Run: pip install groq")
+
     def get_mandatory_disclosures(self, retrieved_contexts: List[Dict[str, Any]]) -> str:
         disclosures = set()
         for r in (retrieved_contexts or []):
@@ -81,12 +90,27 @@ Use the following context to answer the user's query. If you don't know the answ
 {query}
 """
         
-        # 4. Generate Response with Gemini
+        # 4. Generate Response
         answer = "I'm sorry, my Gemini API key is not configured."
         disclosure = self.get_mandatory_disclosures(retrieved_contexts)
         score = 0.92
         
-        if hasattr(self, 'genai_client') and self.genai_client:
+        # --- Groq route ---
+        groq_model = model_name.replace("groq/", "") if model_name.startswith("groq/") else None
+        if groq_model and self.groq_client:
+            try:
+                completion = self.groq_client.chat.completions.create(
+                    model=groq_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature
+                )
+                base_answer = completion.choices[0].message.content
+                answer = base_answer + disclosure
+                score, _ = self.evaluate_faithfulness(base_answer, "\n".join(context_strings))
+            except Exception as e:
+                answer = f"Error calling Groq: {e}"
+        # --- Gemini route ---
+        elif hasattr(self, 'genai_client') and self.genai_client:
             try:
                 chat = self.genai_client.chats.create(
                     model=model_name,
@@ -95,8 +119,6 @@ Use the following context to answer the user's query. If you don't know the answ
                 response = chat.send_message(prompt)
                 base_answer = response.text
                 answer = base_answer + disclosure
-                
-                # Evaluate faithfulness
                 score, _ = self.evaluate_faithfulness(base_answer, "\n".join(context_strings))
             except Exception as e:
                 answer = f"Error calling Gemini: {e}"
@@ -160,23 +182,34 @@ Use the following context to answer the user's query. {citation_instruction}
         
         disclosure = self.get_mandatory_disclosures(retrieved_contexts)
         
-        if hasattr(self, 'genai_client') and self.genai_client:
+        # --- Groq route (streaming) ---
+        groq_model = model_name.replace("groq/", "") if model_name.startswith("groq/") else None
+        if groq_model and self.groq_client:
+            try:
+                stream = self.groq_client.chat.completions.create(
+                    model=groq_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                    stream=True
+                )
+                for chunk in stream:
+                    delta = chunk.choices[0].delta.content or ""
+                    yield delta
+                yield disclosure
+            except Exception as e:
+                yield f"Error calling Groq: {e}"
+        # --- Gemini route (streaming) ---
+        elif hasattr(self, 'genai_client') and self.genai_client:
             chat = self.genai_client.chats.create(
                 model=model_name,
                 config=types.GenerateContentConfig(temperature=temperature)
             )
             response = chat.send_message_stream(prompt)
-            full_response = ""
             for chunk in response:
-                full_response += chunk.text
                 yield chunk.text
-                
             yield disclosure
-            
-            # Note: For stream we don't return the score here since we just yield text. 
-            # The client will use POST /evaluate later if they want to score a specific chunk.
         else:
-            yield "I'm sorry, my Gemini API key is not configured."
+            yield "I'm sorry, no LLM API key is configured."
 
     def evaluate_faithfulness(self, generated_text: str, source_text: str) -> tuple[float, str]:
         """
