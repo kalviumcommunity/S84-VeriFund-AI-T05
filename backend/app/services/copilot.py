@@ -11,11 +11,14 @@ from app.core.config import settings
 
 class CopilotService:
     def __init__(self):
-        # Configure Gemini
-        if settings.GEMINI_API_KEY:
+        # Use the RagService's robust multi-key embeddings to initialize genai_client
+        from app.services.retrieval import rag_service
+        
+        self.genai_client = None
+        if rag_service.embeddings and hasattr(rag_service.embeddings, 'clients') and len(rag_service.embeddings.clients) > 0:
+            self.genai_client = rag_service.embeddings.clients[0]
+        elif settings.GEMINI_API_KEY:
             self.genai_client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        else:
-            self.genai_client = None
 
     def get_mandatory_disclosures(self, retrieved_contexts: List[Dict[str, Any]]) -> str:
         disclosures = set()

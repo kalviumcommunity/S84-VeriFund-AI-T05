@@ -37,11 +37,15 @@ class DocumentIngestionService:
         """
         chunks = []
         # Apply nest_asyncio removed to prevent NoEventLoopError on subsequent requests
+        import time
         print(f"Extracting PDF pages with pdfplumber for {file_path}")
         with pdfplumber.open(file_path) as pdf:
             for page_num, page in enumerate(pdf.pages, start=1):
                 text = page.extract_text() or ""
                 tables = page.extract_tables() or []
+                
+                # Yield the GIL periodically to prevent starving FastAPI worker threads
+                time.sleep(0.05)
                 
                 clean_text = text.strip()
                 if clean_text:
