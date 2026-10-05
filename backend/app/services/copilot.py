@@ -52,9 +52,7 @@ class CopilotService:
                 context_strings.append(r.get("snippet", ""))
 
         if not context_strings:
-            context_strings = [
-                "The Horizon Balanced Growth Fund has an annual expense ratio of 1.25%.",
-            ]
+            context_strings = ["No context found in the database for this query."]
             
         strict_instruction = ""
         if strict_mode:
@@ -128,9 +126,7 @@ Use the following context to answer the user's query. If you don't know the answ
                 context_strings.append(f"Source: {title} (Page {page})\nText: {r.get('snippet', '')}")
         
         if not context_strings:
-            context_strings = [
-                "The Horizon Balanced Growth Fund has an annual expense ratio of 1.25%.",
-            ]
+            context_strings = ["No context found in the database for this query."]
             
         strict_instruction = ""
         if strict_mode:
