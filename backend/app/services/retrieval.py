@@ -26,18 +26,31 @@ class GeminiEmbeddings:
         self.clients = [genai.Client(api_key=k) for k in keys]
         self.current_client_idx = 0
 
+    def _is_rate_limit_error(self, e: Exception) -> bool:
+        err_str = str(e).upper()
+        return any(term in err_str for term in ["429", "RESOURCE_EXHAUSTED", "QUOTA", "RATE", "LIMIT"]) or getattr(e, "code", None) == 429 or getattr(e, "status_code", None) == 429
+
     def embed_query(self, text: str) -> List[float]:
-        # For single queries (e.g. chat), just use the first primary key since rate limits are rarely an issue here
-        result = self.clients[0].models.embed_content(
-            model=self.EMBEDDING_MODEL,
-            contents=text,
-            config={"output_dimensionality": self.OUTPUT_DIM}
-        )
-        return result.embeddings[0].values
+        # Try active client with fallback across all available keys
+        for _ in range(len(self.clients)):
+            client = self.clients[self.current_client_idx]
+            try:
+                result = client.models.embed_content(
+                    model=self.EMBEDDING_MODEL,
+                    contents=text,
+                    config={"output_dimensionality": self.OUTPUT_DIM}
+                )
+                return result.embeddings[0].values
+            except Exception as e:
+                if self._is_rate_limit_error(e) and len(self.clients) > 1:
+                    self.current_client_idx = (self.current_client_idx + 1) % len(self.clients)
+                    continue
+                raise e
+        raise RuntimeError("Failed to generate query embedding across all Gemini keys.")
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         import time
-        max_retries = 3 * len(self.clients) # Try each key a few times
+        max_retries = max(6, 3 * len(self.clients)) # Retry sufficient times with backoff
         
         for attempt in range(max_retries):
             client = self.clients[self.current_client_idx]
@@ -49,15 +62,16 @@ class GeminiEmbeddings:
                 )
                 return [e.values for e in result.embeddings]
             except Exception as e:
-                if "429" in str(e):
+                if self._is_rate_limit_error(e):
                     # Rotate to the next available API key
                     next_idx = (self.current_client_idx + 1) % len(self.clients)
                     if next_idx == 0:
-                        # If we've looped back to the first key, wait 35s to replenish quotas
-                        print(f"All {len(self.clients)} API keys hit rate limits. Sleeping 35s... (Attempt {attempt+1}/{max_retries})")
-                        time.sleep(35)
+                        # If we've looped through all keys, pause for 30s to replenish free tier per-minute quotas
+                        wait_time = 30
+                        print(f"All {len(self.clients)} Gemini API keys hit rate limits. Sleeping {wait_time}s to replenish quota... (Attempt {attempt+1}/{max_retries})")
+                        time.sleep(wait_time)
                     else:
-                        print(f"Rate limit hit on key {self.current_client_idx}. Falling back to key {next_idx}...")
+                        print(f"Rate limit / quota hit on Gemini key {self.current_client_idx}. Rotating to key {next_idx}...")
                     
                     self.current_client_idx = next_idx
                 else:

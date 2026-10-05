@@ -100,12 +100,13 @@ class DocumentIngestionService:
         print(f"Generating embeddings for {len(texts_to_embed)} chunks...")
         vectors = []
         import time
-        batch_size = 100
+        # Use batches of 25 chunks to stay safely within free-tier TPM and payload limits
+        batch_size = 25
         for idx in range(0, len(texts_to_embed), batch_size):
             batch = texts_to_embed[idx : idx + batch_size]
             batch_vectors = self.embeddings.embed_documents(batch)
             vectors.extend(batch_vectors)
-            time.sleep(2) # Prevent hitting the 100 RPM free-tier limit
+            time.sleep(3) # Pacing between batches to respect free-tier 15 RPM limits
 
         # 3. Pinecone Upsert & Postgres Save
         # Clean existing chunks to prevent duplicates

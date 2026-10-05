@@ -1,3 +1,4 @@
+
 import os
 from typing import List, Dict, Any
 from google import genai
@@ -14,11 +15,13 @@ class CopilotService:
         # Use the RagService's robust multi-key embeddings to initialize genai_client
         from app.services.retrieval import rag_service
         
-        self.genai_client = None
+        self.genai_clients = []
         if rag_service.embeddings and hasattr(rag_service.embeddings, 'clients') and len(rag_service.embeddings.clients) > 0:
-            self.genai_client = rag_service.embeddings.clients[0]
+            self.genai_clients = rag_service.embeddings.clients
         elif settings.GEMINI_API_KEY:
-            self.genai_client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            self.genai_clients = [genai.Client(api_key=settings.GEMINI_API_KEY)]
+            
+        self.genai_client = self.genai_clients[0] if self.genai_clients else None
 
         # Initialize Groq client using OpenAI SDK
         self.groq_client = None
@@ -196,18 +199,25 @@ class CopilotService:
             else:
                 answer = "Groq API key is not configured."
         # --- Gemini route ---
-        elif hasattr(self, 'genai_client') and self.genai_client:
-            try:
-                chat = self.genai_client.chats.create(
-                    model=resolved_model,
-                    config=types.GenerateContentConfig(temperature=temperature)
-                )
-                response = chat.send_message(prompt)
-                base_answer = response.text or ""
-                answer = base_answer + disclosure
-                score, _ = self.evaluate_faithfulness(base_answer, "\n".join(context_strings))
-            except Exception as e:
-                answer = f"Error calling Gemini ({resolved_model}): {e}"
+        elif hasattr(self, 'genai_clients') and self.genai_clients:
+            last_err = None
+            for client in self.genai_clients:
+                try:
+                    chat = client.chats.create(
+                        model=resolved_model,
+                        config=types.GenerateContentConfig(temperature=temperature)
+                    )
+                    response = chat.send_message(prompt)
+                    base_answer = response.text or ""
+                    answer = base_answer + disclosure
+                    score, _ = self.evaluate_faithfulness(base_answer, "\n".join(context_strings))
+                    last_err = None
+                    break
+                except Exception as e:
+                    last_err = e
+                    continue
+            if last_err:
+                answer = f"Error calling Gemini ({resolved_model}): {last_err}"
 
         return {
             "answer": answer,
@@ -255,15 +265,27 @@ class CopilotService:
             else:
                 yield "Groq API key is not configured."
         # --- Gemini route (streaming) ---
-        elif hasattr(self, 'genai_client') and self.genai_client:
-            chat = self.genai_client.chats.create(
-                model=resolved_model,
-                config=types.GenerateContentConfig(temperature=temperature)
-            )
-            response = chat.send_message_stream(prompt)
-            for chunk in response:
-                yield chunk.text
-            yield disclosure
+        elif hasattr(self, 'genai_clients') and self.genai_clients:
+            last_err = None
+            success = False
+            for client in self.genai_clients:
+                try:
+                    chat = client.chats.create(
+                        model=resolved_model,
+                        config=types.GenerateContentConfig(temperature=temperature)
+                    )
+                    response = chat.send_message_stream(prompt)
+                    for chunk in response:
+                        yield chunk.text
+                    yield disclosure
+                    success = True
+                    last_err = None
+                    break
+                except Exception as e:
+                    last_err = e
+                    continue
+            if not success and last_err:
+                yield f"Error calling Gemini ({resolved_model}): {last_err}"
         else:
             yield "I'm sorry, no LLM API key is configured."
 
