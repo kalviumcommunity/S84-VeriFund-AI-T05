@@ -25,7 +25,12 @@ class DocumentIngestionService:
     def embeddings(self):
         return rag_service.embeddings
 
-    def process_pdf(self, file_path: str, document_id: str, db: Session) -> bool:
+    def process_pdf(self, file_path: str, document_id: str, db_ignored: Session = None) -> bool:
+        from app.db.session import SessionLocal
+        with SessionLocal() as db:
+            return self._process_pdf_internal(file_path, document_id, db)
+
+    def _process_pdf_internal(self, file_path: str, document_id: str, db: Session) -> bool:
         """
         Extract text from PDF using LlamaParse (if configured) or pdfplumber,
         chunk it, generate embeddings, and save to Pinecone and Postgres.

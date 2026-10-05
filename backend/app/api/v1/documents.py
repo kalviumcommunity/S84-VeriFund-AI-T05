@@ -67,8 +67,7 @@ def upload_document(
     background_tasks.add_task(
         ingestion_service.process_pdf, 
         file_path=local_file_path, 
-        document_id=str(new_doc.id), 
-        db=db
+        document_id=str(new_doc.id)
     )
     
     return new_doc
