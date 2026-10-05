@@ -56,8 +56,18 @@ def register(
         role=user_in.role
     )
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    
+    from sqlalchemy.exc import IntegrityError
+    try:
+        db.commit()
+        db.refresh(user)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="The user with this username already exists in the system."
+        )
+        
     return user
 
 @router.get("/me", response_model=UserResponse)
