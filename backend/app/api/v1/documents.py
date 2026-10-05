@@ -13,6 +13,28 @@ from app.models.document import Document, DocumentStatus
 from app.services.ingestion import ingestion_service
 from app.core.config import settings
 
+import threading
+import queue
+
+# Create a strict sequential queue for processing PDFs to prevent OOM kills
+# on low-memory Render instances when batch-uploading documents.
+upload_queue = queue.Queue()
+
+def _ingestion_worker():
+    while True:
+        task = upload_queue.get()
+        if task is None: break
+        try:
+            # task is a tuple of (file_path, document_id)
+            ingestion_service.process_pdf(task[0], task[1])
+        except Exception as e:
+            print(f"Ingestion worker failed: {e}")
+        finally:
+            upload_queue.task_done()
+
+# Start the daemon worker thread
+threading.Thread(target=_ingestion_worker, daemon=True).start()
+
 router = APIRouter()
 
 def get_s3_client():
@@ -63,12 +85,8 @@ def upload_document(
     db.commit()
     db.refresh(new_doc)
     
-    # 3. Trigger Ingestion Background Task
-    background_tasks.add_task(
-        ingestion_service.process_pdf, 
-        file_path=local_file_path, 
-        document_id=str(new_doc.id)
-    )
+    # 3. Trigger Ingestion via Sequential Worker Queue
+    upload_queue.put((local_file_path, str(new_doc.id)))
     
     return new_doc
 

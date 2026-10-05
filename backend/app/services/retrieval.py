@@ -28,15 +28,12 @@ class GeminiEmbeddings:
         return result.embeddings[0].values
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        embeddings = []
-        for text in texts:
-            result = self.client.models.embed_content(
-                model=self.EMBEDDING_MODEL,
-                contents=text,
-                config={"output_dimensionality": self.OUTPUT_DIM}
-            )
-            embeddings.append(result.embeddings[0].values)
-        return embeddings
+        result = self.client.models.embed_content(
+            model=self.EMBEDDING_MODEL,
+            contents=texts,
+            config={"output_dimensionality": self.OUTPUT_DIM}
+        )
+        return [e.values for e in result.embeddings]
 
 
 class RagService:
