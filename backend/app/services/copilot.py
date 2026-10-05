@@ -20,14 +20,39 @@ class CopilotService:
         elif settings.GEMINI_API_KEY:
             self.genai_client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
-        # Initialize Groq client if key is available
+        # Initialize Groq client using OpenAI SDK
         self.groq_client = None
+        self._init_groq_client()
+
+    def _init_groq_client(self):
         if settings.GROQ_API_KEY:
             try:
-                from groq import Groq
-                self.groq_client = Groq(api_key=settings.GROQ_API_KEY)
-            except ImportError:
-                print("Groq package not installed. Run: pip install groq")
+                from openai import OpenAI
+                self.groq_client = OpenAI(
+                    api_key=settings.GROQ_API_KEY,
+                    base_url="https://api.groq.com/openai/v1",
+                )
+            except Exception:
+                try:
+                    from groq import Groq
+                    self.groq_client = Groq(api_key=settings.GROQ_API_KEY)
+                except Exception:
+                    self.groq_client = None
+
+    def _resolve_model(self, model_name: str) -> tuple[str, str]:
+        """
+        Determines provider ('groq' or 'gemini') and normalizes model name.
+        """
+        groq_free_models = {
+            "openai/gpt-oss-20b",
+            "openai/gpt-oss-120b",
+            "qwen/qwen3.8-27b"
+        }
+        if model_name.startswith("groq/"):
+            return "groq", model_name.replace("groq/", "", 1)
+        if model_name in groq_free_models:
+            return "groq", model_name
+        return "gemini", model_name
 
     def get_mandatory_disclosures(self, retrieved_contexts: List[Dict[str, Any]]) -> str:
         disclosures = set()
@@ -59,9 +84,13 @@ class CopilotService:
         End-to-end RAG retrieval and generation.
         """
         context_strings = []
+        doc_titles = set()
         if retrieved_contexts:
             for r in retrieved_contexts:
-                context_strings.append(r.get("snippet", ""))
+                page = r.get("page_number", 1)
+                title = r.get("document_title", "Document")
+                doc_titles.add(title)
+                context_strings.append(f"Source: {title} (Page {page})\nText: {r.get('snippet', '')}")
 
         if not context_strings:
             context_strings = ["No context found in the database for this query."]
@@ -72,15 +101,19 @@ class CopilotService:
             temperature = 0.0 # Force zero variance in strict mode
 
         if persona == 'client':
-            persona_prompt = "You are an AI assistant helping a retail client. Use simple, non-jargon language. Keep your answers brief and easy to understand."
+            persona_prompt = "You are an AI assistant helping a retail client. Use simple, non-jargon language. Keep your answers brief and easy to understand. Always structure your response with clear headers and bullet points."
         else:
-            persona_prompt = "You are VeriFund AI, an expert financial assistant for professional wealth advisors. Provide highly detailed, analytical, and precise answers."
+            persona_prompt = "You are VeriFund AI, an expert financial assistant for professional wealth advisors. Provide highly detailed, analytical, and precise answers. Structure the response strictly with clear headers and Markdown tables where appropriate. If the context contains historical returns or comparable numeric performance data, you MUST provide a JSON block at the very end to visualize the data in this exact format:\n```json\n{\"type\": \"chart\", \"data\": [{\"year\": \"2023\", \"Fund A\": 4.5, \"Fund B\": 2.1}, {\"year\": \"2024\", \"Fund A\": 6.2, \"Fund B\": 5.5}]}\n```\nIf the context contains portfolio composition, asset allocation, or sector breakdown, you MUST provide a pie chart JSON block instead:\n```json\n{\"type\": \"pie\", \"data\": [{\"id\": \"Technology\", \"value\": 45}, {\"id\": \"Healthcare\", \"value\": 25}]}\n```\nKeep everything highly formatted."
+
+        citation_instruction = "If you cite a fact, append a citation tag. Since all context comes from a single document, use EXACTLY the format [Page X] (where X is the page number)."
+        if len(doc_titles) > 1:
+            citation_instruction = "If you cite a fact, append a citation tag. Since the context comes from multiple documents, use the format [Document Title, Page X]."
 
         # 3. Construct Prompt
         context_str = "\n\n".join([f"Context {i+1}: {ctx}" for i, ctx in enumerate(context_strings)])
         prompt = f"""
 {persona_prompt}
-Use the following context to answer the user's query. If you don't know the answer based on the context, say so clearly.
+Use the following context to answer the user's query. {citation_instruction}
 {strict_instruction}
 
 --- CONTEXT ---
@@ -91,37 +124,43 @@ Use the following context to answer the user's query. If you don't know the answ
 """
         
         # 4. Generate Response
-        answer = "I'm sorry, my Gemini API key is not configured."
+        answer = "I'm sorry, no LLM API key is configured."
         disclosure = self.get_mandatory_disclosures(retrieved_contexts)
         score = 0.92
         
+        provider, resolved_model = self._resolve_model(model_name)
+
         # --- Groq route ---
-        groq_model = model_name.replace("groq/", "") if model_name.startswith("groq/") else None
-        if groq_model and self.groq_client:
-            try:
-                completion = self.groq_client.chat.completions.create(
-                    model=groq_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=temperature
-                )
-                base_answer = completion.choices[0].message.content
-                answer = base_answer + disclosure
-                score, _ = self.evaluate_faithfulness(base_answer, "\n".join(context_strings))
-            except Exception as e:
-                answer = f"Error calling Groq: {e}"
+        if provider == "groq":
+            if not self.groq_client:
+                self._init_groq_client()
+            if self.groq_client:
+                try:
+                    completion = self.groq_client.chat.completions.create(
+                        model=resolved_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=temperature
+                    )
+                    base_answer = completion.choices[0].message.content or ""
+                    answer = base_answer + disclosure
+                    score, _ = self.evaluate_faithfulness(base_answer, "\n".join(context_strings))
+                except Exception as e:
+                    answer = f"Error calling Groq ({resolved_model}): {e}"
+            else:
+                answer = "Groq API key is not configured."
         # --- Gemini route ---
         elif hasattr(self, 'genai_client') and self.genai_client:
             try:
                 chat = self.genai_client.chats.create(
-                    model=model_name,
+                    model=resolved_model,
                     config=types.GenerateContentConfig(temperature=temperature)
                 )
                 response = chat.send_message(prompt)
-                base_answer = response.text
+                base_answer = response.text or ""
                 answer = base_answer + disclosure
                 score, _ = self.evaluate_faithfulness(base_answer, "\n".join(context_strings))
             except Exception as e:
-                answer = f"Error calling Gemini: {e}"
+                answer = f"Error calling Gemini ({resolved_model}): {e}"
 
         return {
             "answer": answer,
@@ -182,26 +221,34 @@ Use the following context to answer the user's query. {citation_instruction}
         
         disclosure = self.get_mandatory_disclosures(retrieved_contexts)
         
+        provider, resolved_model = self._resolve_model(model_name)
+
         # --- Groq route (streaming) ---
-        groq_model = model_name.replace("groq/", "") if model_name.startswith("groq/") else None
-        if groq_model and self.groq_client:
-            try:
-                stream = self.groq_client.chat.completions.create(
-                    model=groq_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=temperature,
-                    stream=True
-                )
-                for chunk in stream:
-                    delta = chunk.choices[0].delta.content or ""
-                    yield delta
-                yield disclosure
-            except Exception as e:
-                yield f"Error calling Groq: {e}"
+        if provider == "groq":
+            if not self.groq_client:
+                self._init_groq_client()
+            if self.groq_client:
+                try:
+                    stream = self.groq_client.chat.completions.create(
+                        model=resolved_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=temperature,
+                        stream=True
+                    )
+                    for chunk in stream:
+                        if chunk.choices and len(chunk.choices) > 0:
+                            delta = chunk.choices[0].delta.content or ""
+                            if delta:
+                                yield delta
+                    yield disclosure
+                except Exception as e:
+                    yield f"Error calling Groq ({resolved_model}): {e}"
+            else:
+                yield "Groq API key is not configured."
         # --- Gemini route (streaming) ---
         elif hasattr(self, 'genai_client') and self.genai_client:
             chat = self.genai_client.chats.create(
-                model=model_name,
+                model=resolved_model,
                 config=types.GenerateContentConfig(temperature=temperature)
             )
             response = chat.send_message_stream(prompt)

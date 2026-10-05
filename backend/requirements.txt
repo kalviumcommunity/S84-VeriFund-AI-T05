@@ -16,3 +16,4 @@ boto3
 llama-parse
 pydantic-settings
 groq
+openai

@@ -41,7 +41,7 @@ const CopilotPage = () => {
   const [query, setQuery] = useState('');
   const VALID_MODELS = [
     'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash',
-    'groq/llama-3.3-70b-versatile', 'groq/llama-3.1-8b-instant', 'groq/mixtral-8x7b-32768'
+    'groq/openai/gpt-oss-20b', 'groq/openai/gpt-oss-120b', 'groq/qwen/qwen3.8-27b'
   ];
   const savedModel = localStorage.getItem('preferredModel');
   const [model, setModel] = useState((savedModel && VALID_MODELS.includes(savedModel)) ? savedModel : 'gemini-3.8-flash');
@@ -619,18 +619,21 @@ const CopilotPage = () => {
                 <div className="absolute bottom-3 right-3 flex items-center space-x-2">
                   <select 
                     value={model}
-                    onChange={(e) => setModel(e.target.value)}
+                    onChange={(e) => {
+                      setModel(e.target.value);
+                      localStorage.setItem('preferredModel', e.target.value);
+                    }}
                     className="border rounded-md px-2 py-1.5 text-xs focus:ring-1 focus:ring-primary focus:outline-none bg-gray-50 text-gray-600 cursor-pointer"
                   >
-                    <optgroup label="Gemini">
+                    <optgroup label="Gemini (Google)">
                       <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
                       <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
                       <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
                     </optgroup>
-                    <optgroup label="Groq">
-                      <option value="groq/llama-3.3-70b-versatile">Llama 3.3 70B</option>
-                      <option value="groq/llama-3.1-8b-instant">Llama 3.1 8B (Fast)</option>
-                      <option value="groq/mixtral-8x7b-32768">Mixtral 8x7B</option>
+                    <optgroup label="Groq (Ultra-Fast)">
+                      <option value="groq/openai/gpt-oss-20b">GPT-OSS 20B (Groq)</option>
+                      <option value="groq/openai/gpt-oss-120b">GPT-OSS 120B (Groq)</option>
+                      <option value="groq/qwen/qwen3.8-27b">Qwen 3.8 27B (Groq)</option>
                     </optgroup>
                   </select>
                   <button 

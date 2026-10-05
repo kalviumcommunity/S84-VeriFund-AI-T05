@@ -1,6 +1,15 @@
-import { useState, useEffect } from 'react';
-import { Search, Upload, FileText, Loader2 } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Search, Upload, FileText, Loader2, CheckCircle2, X } from 'lucide-react';
 import api from '../../lib/api';
+
+// Toast notification component for ingestion completion
+const Toast = ({ message, onClose }: { message: string; onClose: () => void }) => (
+  <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-emerald-600 text-white px-4 py-3 rounded-lg shadow-xl animate-slide-up max-w-sm">
+    <CheckCircle2 className="h-5 w-5 shrink-0" />
+    <span className="text-sm font-medium">{message}</span>
+    <button onClick={onClose} className="ml-auto hover:opacity-70 cursor-pointer"><X className="h-4 w-4" /></button>
+  </div>
+);
 
 const DocumentsPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -10,21 +19,50 @@ const DocumentsPage = () => {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [documentToDelete, setDocumentToDelete] = useState<any>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [toasts, setToasts] = useState<{ id: string; message: string }[]>([]);
+  const prevStatusRef = useRef<Record<string, string>>({});
 
-  useEffect(() => {
-    fetchDocuments();
+  const addToast = useCallback((message: string) => {
+    const id = Math.random().toString(36).slice(2);
+    setToasts(t => [...t, { id, message }]);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 5000);
   }, []);
 
-  const fetchDocuments = async () => {
+  const fetchDocuments = useCallback(async () => {
     try {
       const response = await api.get('/documents/');
-      setDocuments(response.data);
+      const freshDocs: any[] = response.data;
+
+      // Detect docs that just flipped from DRAFT → APPROVED
+      freshDocs.forEach(doc => {
+        const prev = prevStatusRef.current[doc.id];
+        if (prev === 'DRAFT' && doc.status === 'APPROVED') {
+          addToast(`✅ "${doc.title}" is ready — indexed in Pinecone!`);
+        }
+      });
+
+      // Update previous status map
+      prevStatusRef.current = Object.fromEntries(freshDocs.map(d => [d.id, d.status]));
+      setDocuments(freshDocs);
     } catch (error) {
       console.error('Failed to fetch documents', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [addToast]);
+
+  // Initial fetch
+  useEffect(() => {
+    fetchDocuments();
+  }, [fetchDocuments]);
+
+  // Auto-poll every 5s while any doc is still in DRAFT (being ingested)
+  useEffect(() => {
+    const hasDraft = documents.some(d => d.status === 'DRAFT');
+    if (!hasDraft) return;
+    const interval = setInterval(fetchDocuments, 5000);
+    return () => clearInterval(interval);
+  }, [documents, fetchDocuments]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -118,9 +156,17 @@ const DocumentsPage = () => {
                     <td className="px-6 py-4">{doc.asset_class || 'Unknown'}</td>
                     <td className="px-6 py-4 text-gray-500">v{doc.version || '1.0'}</td>
                     <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2 py-1 rounded text-[10px] font-bold border ${doc.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${doc.status === 'APPROVED' ? 'bg-emerald-500' : 'bg-gray-400'}`}></div>{doc.status}
-                      </span>
+                      {doc.status === 'DRAFT' ? (
+                        <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold border bg-amber-50 text-amber-700 border-amber-200">
+                          <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                          Indexing...
+                        </span>
+                      ) : (
+                        <span className={`inline-flex items-center px-2 py-1 rounded text-[10px] font-bold border ${doc.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                          <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${doc.status === 'APPROVED' ? 'bg-emerald-500' : 'bg-gray-400'}`}></div>
+                          {doc.status}
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-4">{new Date(doc.effective_date).toLocaleDateString()}</td>
                     <td className="px-6 py-4 text-gray-500">{doc.expiration_date ? new Date(doc.expiration_date).toLocaleDateString() : '-'}</td>
@@ -234,6 +280,17 @@ const DocumentsPage = () => {
           </div>
         </div>
       )}
+
+      {/* Ingestion completion toast notifications */}
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2">
+        {toasts.map(toast => (
+          <Toast
+            key={toast.id}
+            message={toast.message}
+            onClose={() => setToasts(t => t.filter(x => x.id !== toast.id))}
+          />
+        ))}
+      </div>
     </div>
   );
 };
