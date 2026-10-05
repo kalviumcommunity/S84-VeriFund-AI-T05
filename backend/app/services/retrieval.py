@@ -78,7 +78,13 @@ class RagService:
     @property
     def embeddings(self):
         if self._embeddings is None:
-            self._embeddings = GeminiEmbeddings(api_key=settings.GEMINI_API_KEY)
+            # Resolve the primary key: prefer GEMINI_API_KEY, else use the first in GEMINI_API_KEYS
+            primary_key = settings.GEMINI_API_KEY
+            if not primary_key and settings.GEMINI_API_KEYS:
+                primary_key = settings.GEMINI_API_KEYS.split(',')[0].strip()
+            if not primary_key:
+                raise ValueError("No Gemini API key configured. Set GEMINI_API_KEY or GEMINI_API_KEYS in your environment.")
+            self._embeddings = GeminiEmbeddings(api_key=primary_key)
         return self._embeddings
 
     def retrieve_chunks(
