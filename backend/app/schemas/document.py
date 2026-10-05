@@ -20,6 +20,7 @@ class DocumentResponse(DocumentBase):
     file_url: str
     status: DocumentStatus
     created_at: datetime
+    is_indexed: bool = True
     
     class Config:
         from_attributes = True

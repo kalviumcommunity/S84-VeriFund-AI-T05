@@ -11,10 +11,17 @@ import { ResponsivePie } from '@nivo/pie';
 import { CustomPDFViewer } from './CustomPDFViewer';
 
 // --- Chat Session Types ---
+interface ChatSource {
+  title: string;
+  page_number: number;
+  snippet: string;
+}
+
 interface ChatMessage {
   type: 'user' | 'bot';
   text: string;
   score?: number;
+  sources?: ChatSource[];
 }
 interface ChatSession {
   id: string;
@@ -22,6 +29,21 @@ interface ChatSession {
   messages: ChatMessage[];
   createdAt: number;
 }
+
+const formatCitations = (text: string): string => {
+  if (!text) return '';
+  return text
+    // Replace [Doc Title, Page X] or [Page X] or [page X] or [p. X]
+    .replace(/\[(?:([^\]]*?),\s*)?(?:Page|page|p\.)\s*:?\s*(\d+)\]/g, (_, doc, page) => {
+      const label = doc ? `${doc}, Page ${page}` : `Page ${page}`;
+      return `[${label}](#page-${page})`;
+    })
+    // Replace (Doc Title, Page X) or (Page X) or (page X)
+    .replace(/\((?:([^)]*?),\s*)?(?:Page|page|p\.)\s*:?\s*(\d+)\)/g, (_, doc, page) => {
+      const label = doc ? `${doc}, Page ${page}` : `Page ${page}`;
+      return `[${label}](#page-${page})`;
+    });
+};
 
 const generateId = () => Math.random().toString(36).slice(2);
 const SESSIONS_KEY = 'verifund_chat_sessions';
@@ -207,7 +229,12 @@ const CopilotPage = () => {
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'metadata') {
-        updateHistory(prev => [...prev, { type: 'bot', text: '', score: Math.round(data.groundedness_score * 100) }]);
+        updateHistory(prev => [...prev, { 
+          type: 'bot', 
+          text: '', 
+          score: Math.round(data.groundedness_score * 100),
+          sources: data.sources || []
+        }]);
       } else if (data.type === 'chunk') {
         updateHistory(prev => {
           const newHistory = [...prev];
@@ -458,17 +485,18 @@ const CopilotPage = () => {
                       components={{
                         a: ({href, children}: any) => {
                           if (href?.startsWith('#page-')) {
-                            const pageNum = parseInt(href.replace('#page-', ''));
+                            const pageNum = parseInt(href.replace('#page-', '')) || 1;
                             return (
                               <span 
                                 onClick={() => handleCitationClick(pageNum)}
-                                className="inline-flex items-center bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-xs mx-1 cursor-pointer hover:bg-blue-200 transition-colors"
+                                className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-xs mx-1 font-semibold cursor-pointer hover:bg-blue-200 transition-colors shadow-2xs border border-blue-200"
+                                title={`Click to jump to Page ${pageNum}`}
                               >
                                 <FileIcon /> {children}
                               </span>
                             );
                           }
-                          return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+                          return <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline">{children}</a>;
                         },
                         table: ({children}: any) => (
                           <div className="overflow-x-auto my-3 border border-gray-200 rounded-lg shadow-xs not-prose">
@@ -545,8 +573,28 @@ const CopilotPage = () => {
                         }
                       }}
                     >
-                      {msg.text.replace(/\[Page (\d+)\]/g, '[Page $1](#page-$1)')}
+                      {formatCitations(msg.text)}
                     </ReactMarkdown>
+
+                    {msg.sources && msg.sources.length > 0 && (
+                      <div className="mt-3 pt-2.5 border-t border-gray-100 flex flex-wrap items-center gap-1.5 text-xs text-gray-500 not-prose">
+                        <span className="font-semibold text-gray-700 flex items-center gap-1 mr-1">
+                          <FileIcon /> Sources Cited:
+                        </span>
+                        {Array.from(new Set(msg.sources.map(s => s.page_number)))
+                          .sort((a, b) => a - b)
+                          .map(pageNum => (
+                            <button
+                              key={pageNum}
+                              onClick={() => handleCitationClick(pageNum)}
+                              className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-medium transition-colors cursor-pointer text-xs"
+                              title={`Jump to Page ${pageNum}`}
+                            >
+                              Page {pageNum}
+                            </button>
+                          ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               )

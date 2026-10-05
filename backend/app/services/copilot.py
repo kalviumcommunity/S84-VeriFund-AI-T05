@@ -83,47 +83,94 @@ class CopilotService:
         """
         End-to-end RAG retrieval and generation.
         """
+    def _build_prompt(
+        self,
+        query: str,
+        retrieved_contexts: List[Dict[str, Any]],
+        strict_mode: bool,
+        persona: str
+    ) -> tuple[str, List[str]]:
         context_strings = []
-        doc_titles = set()
         if retrieved_contexts:
-            for r in retrieved_contexts:
+            for i, r in enumerate(retrieved_contexts):
                 page = r.get("page_number", 1)
                 title = r.get("document_title", "Document")
-                doc_titles.add(title)
-                context_strings.append(f"Source: {title} (Page {page})\nText: {r.get('snippet', '')}")
+                context_strings.append(
+                    f"--- Source Context {i+1} [Document: {title} | Page {page}] ---\n{r.get('snippet', '')}"
+                )
 
         if not context_strings:
             context_strings = ["No context found in the database for this query."]
-            
+
         strict_instruction = ""
         if strict_mode:
-            strict_instruction = "STRICT MODE: You must ONLY answer using the provided context. If the exact answer is not found in the text, you MUST reply with 'I cannot answer this based on the provided documents.' Do not use any external knowledge."
-            temperature = 0.0 # Force zero variance in strict mode
+            strict_instruction = (
+                "STRICT GROUNDING: You must ONLY answer using the provided context chunks. "
+                "If the exact answer or specific numbers are not found in the text, you MUST state: "
+                "'I cannot answer this based on the provided documents.' Do not extrapolate or assume."
+            )
 
         if persona == 'client':
-            persona_prompt = "You are an AI assistant helping a retail client. Use simple, non-jargon language. Keep your answers brief and easy to understand. Always structure your response with clear headers and bullet points."
+            persona_prompt = (
+                "You are an AI assistant helping a retail client. Use simple, non-jargon language. "
+                "Keep your answers brief and easy to understand. Structure your response with clear headers and bullet points."
+            )
         else:
-            persona_prompt = "You are VeriFund AI, an expert financial assistant for professional wealth advisors. Provide highly detailed, analytical, and precise answers. Structure the response strictly with clear headers and Markdown tables where appropriate. If the context contains historical returns or comparable numeric performance data, you MUST provide a JSON block at the very end to visualize the data in this exact format:\n```json\n{\"type\": \"chart\", \"data\": [{\"year\": \"2023\", \"Fund A\": 4.5, \"Fund B\": 2.1}, {\"year\": \"2024\", \"Fund A\": 6.2, \"Fund B\": 5.5}]}\n```\nIf the context contains portfolio composition, asset allocation, or sector breakdown, you MUST provide a pie chart JSON block instead:\n```json\n{\"type\": \"pie\", \"data\": [{\"id\": \"Technology\", \"value\": 45}, {\"id\": \"Healthcare\", \"value\": 25}]}\n```\nKeep everything highly formatted."
+            persona_prompt = (
+                "You are VeriFund AI, an expert financial assistant for professional wealth advisors. "
+                "Provide highly detailed, analytical, and precise answers. Structure the response strictly with clear headers "
+                "and Markdown tables where appropriate. If the context contains historical returns or comparable numeric performance data, "
+                "you MUST provide a JSON block at the very end to visualize the data in this exact format:\n"
+                "```json\n"
+                "{\"type\": \"chart\", \"data\": [{\"year\": \"2023\", \"Fund A\": 4.5, \"Fund B\": 2.1}, {\"year\": \"2024\", \"Fund A\": 6.2, \"Fund B\": 5.5}]}\n"
+                "```\n"
+                "If the context contains portfolio composition, asset allocation, or sector breakdown, you MUST provide a pie chart JSON block instead:\n"
+                "```json\n"
+                "{\"type\": \"pie\", \"data\": [{\"id\": \"Technology\", \"value\": 45}, {\"id\": \"Healthcare\", \"value\": 25}]}\n"
+                "```\n"
+                "Keep everything highly formatted."
+            )
 
-        citation_instruction = "If you cite a fact, append a citation tag. Since all context comes from a single document, use EXACTLY the format [Page X] (where X is the page number)."
-        if len(doc_titles) > 1:
-            citation_instruction = "If you cite a fact, append a citation tag. Since the context comes from multiple documents, use the format [Document Title, Page X]."
+        citation_instruction = (
+            "CRITICAL CITATION DIRECTIVE (MANDATORY):\n"
+            "1. You MUST cite the source page number for EVERY claim, statistic, percentage, fee, date, number, table row, and factual statement using the exact bracket format: [Page X] (e.g., [Page 1], [Page 2]).\n"
+            "2. Place the [Page X] tag immediately at the end of each sentence or bullet point containing data from the context.\n"
+            "3. Every single paragraph, bullet point, and metric in your response MUST have at least one [Page X] citation.\n"
+            "4. ONLY use the page numbers provided in the Context headings above. Never invent page numbers.\n"
+            "Example format: 'The Fund has an annual management fee of 0.75% [Page 2] and a 5-year annualized return of 14.2% [Page 4].'"
+        )
 
-        # 3. Construct Prompt
-        context_str = "\n\n".join([f"Context {i+1}: {ctx}" for i, ctx in enumerate(context_strings)])
+        context_str = "\n\n".join(context_strings)
         prompt = f"""
 {persona_prompt}
-Use the following context to answer the user's query. {citation_instruction}
+
+{citation_instruction}
+
 {strict_instruction}
 
---- CONTEXT ---
+--- RETRIEVED CONTEXT ---
 {context_str}
 
---- QUERY ---
+--- USER QUERY ---
 {query}
 """
+        return prompt, context_strings
+
+    def generate_response(
+        self, 
+        query: str, 
+        retrieved_contexts: List[Dict[str, Any]] = None,
+        model_name: str = 'gemini-3.8-flash', 
+        strict_mode: bool = True, 
+        temperature: float = 0.1,
+        persona: str = 'advisor'
+    ) -> Dict[str, Any]:
+        """
+        End-to-end RAG retrieval and generation.
+        """
+        prompt, context_strings = self._build_prompt(query, retrieved_contexts, strict_mode, persona)
         
-        # 4. Generate Response
+        # Generate Response
         answer = "I'm sorry, no LLM API key is configured."
         disclosure = self.get_mandatory_disclosures(retrieved_contexts)
         score = 0.92
@@ -180,45 +227,7 @@ Use the following context to answer the user's query. {citation_instruction}
         """
         Streaming version of RAG retrieval and generation.
         """
-        context_strings = []
-        doc_titles = set()
-        if retrieved_contexts:
-            for r in retrieved_contexts:
-                page = r.get("page_number", 1)
-                title = r.get("document_title", "Document")
-                doc_titles.add(title)
-                context_strings.append(f"Source: {title} (Page {page})\nText: {r.get('snippet', '')}")
-        
-        if not context_strings:
-            context_strings = ["No context found in the database for this query."]
-            
-        strict_instruction = ""
-        if strict_mode:
-            strict_instruction = "STRICT MODE: You must ONLY answer using the provided context. If the exact answer is not found in the text, you MUST reply with 'I cannot answer this based on the provided documents.' Do not use any external knowledge."
-            temperature = 0.0 # Force zero variance in strict mode
-
-        if persona == 'client':
-            persona_prompt = "You are an AI assistant helping a retail client. Use simple, non-jargon language. Keep your answers brief and easy to understand. Always structure your response with clear headers and bullet points."
-        else:
-            persona_prompt = "You are VeriFund AI, an expert financial assistant for professional wealth advisors. Provide highly detailed, analytical, and precise answers. Structure the response strictly with clear headers and Markdown tables where appropriate. If the context contains historical returns or comparable numeric performance data, you MUST provide a JSON block at the very end to visualize the data in this exact format:\n```json\n{\"type\": \"chart\", \"data\": [{\"year\": \"2023\", \"Fund A\": 4.5, \"Fund B\": 2.1}, {\"year\": \"2024\", \"Fund A\": 6.2, \"Fund B\": 5.5}]}\n```\nIf the context contains portfolio composition, asset allocation, or sector breakdown, you MUST provide a pie chart JSON block instead:\n```json\n{\"type\": \"pie\", \"data\": [{\"id\": \"Technology\", \"value\": 45}, {\"id\": \"Healthcare\", \"value\": 25}]}\n```\nKeep everything highly formatted."
-
-        citation_instruction = "If you cite a fact, append a citation tag. Since all context comes from a single document, use EXACTLY the format [Page X] (where X is the page number)."
-        if len(doc_titles) > 1:
-            citation_instruction = "If you cite a fact, append a citation tag. Since the context comes from multiple documents, use the format [Document Title, Page X]."
-            
-        context_str = "\n\n".join([f"Context {i+1}: {ctx}" for i, ctx in enumerate(context_strings)])
-        prompt = f"""
-{persona_prompt}
-Use the following context to answer the user's query. {citation_instruction}
-{strict_instruction}
-
---- CONTEXT ---
-{context_str}
-
---- QUERY ---
-{query}
-"""
-        
+        prompt, _ = self._build_prompt(query, retrieved_contexts, strict_mode, persona)
         disclosure = self.get_mandatory_disclosures(retrieved_contexts)
         
         provider, resolved_model = self._resolve_model(model_name)

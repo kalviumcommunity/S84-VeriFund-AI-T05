@@ -20,7 +20,7 @@ const DocumentsPage = () => {
   const [documentToDelete, setDocumentToDelete] = useState<any>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [toasts, setToasts] = useState<{ id: string; message: string }[]>([]);
-  const prevStatusRef = useRef<Record<string, string>>({});
+  const prevIndexedRef = useRef<Record<string, boolean>>({});
 
   const addToast = useCallback((message: string) => {
     const id = Math.random().toString(36).slice(2);
@@ -33,16 +33,16 @@ const DocumentsPage = () => {
       const response = await api.get('/documents/');
       const freshDocs: any[] = response.data;
 
-      // Detect docs that just flipped from DRAFT → APPROVED
+      // Detect docs whose vector indexing just finished (is_indexed: false -> true)
       freshDocs.forEach(doc => {
-        const prev = prevStatusRef.current[doc.id];
-        if (prev === 'DRAFT' && doc.status === 'APPROVED') {
+        const wasIndexed = prevIndexedRef.current[doc.id];
+        if (wasIndexed === false && doc.is_indexed === true) {
           addToast(`✅ "${doc.title}" is ready — indexed in Pinecone!`);
         }
       });
 
-      // Update previous status map
-      prevStatusRef.current = Object.fromEntries(freshDocs.map(d => [d.id, d.status]));
+      // Update previous indexed state map
+      prevIndexedRef.current = Object.fromEntries(freshDocs.map(d => [d.id, Boolean(d.is_indexed)]));
       setDocuments(freshDocs);
     } catch (error) {
       console.error('Failed to fetch documents', error);
@@ -56,11 +56,11 @@ const DocumentsPage = () => {
     fetchDocuments();
   }, [fetchDocuments]);
 
-  // Auto-poll every 5s while any doc is still in DRAFT (being ingested)
+  // Auto-poll every 4s ONLY while any doc is still indexing (is_indexed === false)
   useEffect(() => {
-    const hasDraft = documents.some(d => d.status === 'DRAFT');
-    if (!hasDraft) return;
-    const interval = setInterval(fetchDocuments, 5000);
+    const hasIndexing = documents.some(d => d.is_indexed === false);
+    if (!hasIndexing) return;
+    const interval = setInterval(fetchDocuments, 4000);
     return () => clearInterval(interval);
   }, [documents, fetchDocuments]);
 
@@ -139,6 +139,7 @@ const DocumentsPage = () => {
                   <th className="px-6 py-3 uppercase tracking-wider text-[11px]">Asset Class</th>
                   <th className="px-6 py-3 uppercase tracking-wider text-[11px]">Version</th>
                   <th className="px-6 py-3 uppercase tracking-wider text-[11px]">Status</th>
+                  <th className="px-6 py-3 uppercase tracking-wider text-[11px]">Vector Index</th>
                   <th className="px-6 py-3 uppercase tracking-wider text-[11px]">Effective Date</th>
                   <th className="px-6 py-3 uppercase tracking-wider text-[11px]">Expiration Date</th>
                   <th className="px-6 py-3 uppercase tracking-wider text-[11px]">Last Updated</th>
@@ -156,15 +157,29 @@ const DocumentsPage = () => {
                     <td className="px-6 py-4">{doc.asset_class || 'Unknown'}</td>
                     <td className="px-6 py-4 text-gray-500">v{doc.version || '1.0'}</td>
                     <td className="px-6 py-4">
-                      {doc.status === 'DRAFT' ? (
-                        <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold border bg-amber-50 text-amber-700 border-amber-200">
-                          <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                      <span className={`inline-flex items-center px-2 py-1 rounded text-[10px] font-bold border ${
+                        doc.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+                        doc.status === 'DRAFT' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                        'bg-gray-100 text-gray-600 border-gray-200'
+                      }`}>
+                        <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
+                          doc.status === 'APPROVED' ? 'bg-emerald-500' :
+                          doc.status === 'DRAFT' ? 'bg-amber-500' :
+                          'bg-gray-400'
+                        }`}></div>
+                        {doc.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      {doc.is_indexed === false ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border bg-amber-50 text-amber-700 border-amber-200">
+                          <Loader2 className="w-3 h-3 mr-1.5 animate-spin text-amber-600" />
                           Indexing...
                         </span>
                       ) : (
-                        <span className={`inline-flex items-center px-2 py-1 rounded text-[10px] font-bold border ${doc.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                          <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${doc.status === 'APPROVED' ? 'bg-emerald-500' : 'bg-gray-400'}`}></div>
-                          {doc.status}
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border bg-emerald-50 text-emerald-700 border-emerald-100">
+                          <CheckCircle2 className="w-3 h-3 mr-1.5 text-emerald-600" />
+                          Ready
                         </span>
                       )}
                     </td>
@@ -201,7 +216,7 @@ const DocumentsPage = () => {
                 ))}
                 {documents.length === 0 && !loading && (
                   <tr>
-                    <td colSpan={8} className="px-6 py-10 text-center text-gray-500">
+                    <td colSpan={10} className="px-6 py-10 text-center text-gray-500">
                       No documents found. Upload a document to get started.
                     </td>
                   </tr>

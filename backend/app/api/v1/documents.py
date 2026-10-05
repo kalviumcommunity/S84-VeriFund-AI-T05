@@ -19,6 +19,7 @@ import queue
 # Create a strict sequential queue for processing PDFs to prevent OOM kills
 # on low-memory Render instances when batch-uploading documents.
 upload_queue = queue.Queue()
+currently_indexing_ids = set()
 
 def _ingestion_worker():
     while True:
@@ -30,6 +31,7 @@ def _ingestion_worker():
         except Exception as e:
             print(f"Ingestion worker failed: {e}")
         finally:
+            currently_indexing_ids.discard(task[1])
             upload_queue.task_done()
 
 # Start the daemon worker thread
@@ -86,9 +88,21 @@ def upload_document(
     db.refresh(new_doc)
     
     # 3. Trigger Ingestion via Sequential Worker Queue
+    currently_indexing_ids.add(str(new_doc.id))
     upload_queue.put((local_file_path, str(new_doc.id)))
     
-    return new_doc
+    return DocumentResponse(
+        id=new_doc.id,
+        title=new_doc.title,
+        version=new_doc.version or "1.0",
+        asset_class=new_doc.asset_class or "Unknown",
+        effective_date=new_doc.effective_date,
+        expiration_date=new_doc.expiration_date,
+        file_url=new_doc.file_url,
+        status=new_doc.status,
+        created_at=new_doc.created_at,
+        is_indexed=False
+    )
 
 @router.get("/{id}/url")
 def get_document_url(id: str, db: Session = Depends(get_db)):
@@ -161,9 +175,35 @@ def view_document_pdf(id: str, db: Session = Depends(get_db)):
 @router.get("/", response_model=List[DocumentResponse])
 def list_documents(db: Session = Depends(get_db), skip: int = 0, limit: int = 100) -> Any:
     """
-    List documents with filters.
+    List documents with filters and accurate is_indexed status decoupled from approval status.
     """
-    return db.query(Document).offset(skip).limit(limit).all()
+    from app.models.document_chunk import DocumentChunk
+    docs = db.query(Document).offset(skip).limit(limit).all()
+    
+    indexed_ids = {
+        str(r[0]) for r in db.query(DocumentChunk.document_id).distinct().all()
+    }
+    
+    results = []
+    for doc in docs:
+        doc_id_str = str(doc.id)
+        is_indexing = doc_id_str in currently_indexing_ids
+        has_chunks = doc_id_str in indexed_ids
+        is_ready = has_chunks and not is_indexing
+        
+        results.append(DocumentResponse(
+            id=doc.id,
+            title=doc.title,
+            version=doc.version or "1.0",
+            asset_class=doc.asset_class or "Unknown",
+            effective_date=doc.effective_date,
+            expiration_date=doc.expiration_date,
+            file_url=doc.file_url,
+            status=doc.status,
+            created_at=doc.created_at,
+            is_indexed=is_ready
+        ))
+    return results
 
 from pydantic import BaseModel
 
@@ -173,8 +213,9 @@ class StatusUpdate(BaseModel):
 @router.patch("/{id}/status", response_model=DocumentResponse)
 def update_document_status(id: str, payload: StatusUpdate, db: Session = Depends(get_db)) -> Any:
     """
-    Update document lifecycle status.
+    Update document lifecycle status without affecting its indexing state.
     """
+    from app.models.document_chunk import DocumentChunk
     doc = db.query(Document).filter(Document.id == id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -182,7 +223,23 @@ def update_document_status(id: str, payload: StatusUpdate, db: Session = Depends
     doc.status = payload.status
     db.commit()
     db.refresh(doc)
-    return doc
+    
+    doc_id_str = str(doc.id)
+    has_chunks = db.query(DocumentChunk).filter(DocumentChunk.document_id == doc.id).first() is not None
+    is_ready = has_chunks and (doc_id_str not in currently_indexing_ids)
+    
+    return DocumentResponse(
+        id=doc.id,
+        title=doc.title,
+        version=doc.version or "1.0",
+        asset_class=doc.asset_class or "Unknown",
+        effective_date=doc.effective_date,
+        expiration_date=doc.expiration_date,
+        file_url=doc.file_url,
+        status=doc.status,
+        created_at=doc.created_at,
+        is_indexed=is_ready
+    )
 
 def cleanup_remote_data(doc_id: str, file_url: str):
     from pinecone import Pinecone

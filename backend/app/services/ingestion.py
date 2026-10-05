@@ -129,12 +129,6 @@ class DocumentIngestionService:
             for b in range(0, len(pinecone_vectors), 100):
                 self.index.upsert(vectors=pinecone_vectors[b:b+100])
         
-        # 4. Mark Document as APPROVED
-        doc = db.query(Document).filter(Document.id == document_id).first()
-        if doc:
-            doc.status = DocumentStatus.APPROVED
-            db.commit()
-
         return True
 
 ingestion_service = DocumentIngestionService()
