@@ -17,10 +17,18 @@ class GeminiEmbeddings:
 
     def __init__(self, api_key: str):
         from google import genai
-        self.client = genai.Client(api_key=api_key)
+        # Gather all provided keys, removing empty ones and duplicates
+        keys = [api_key]
+        if hasattr(settings, 'GEMINI_API_KEYS') and settings.GEMINI_API_KEYS:
+            keys.extend([k.strip() for k in settings.GEMINI_API_KEYS.split(',') if k.strip()])
+        keys = list(dict.fromkeys(keys)) # Preserve order, remove duplicates
+        
+        self.clients = [genai.Client(api_key=k) for k in keys]
+        self.current_client_idx = 0
 
     def embed_query(self, text: str) -> List[float]:
-        result = self.client.models.embed_content(
+        # For single queries (e.g. chat), just use the first primary key since rate limits are rarely an issue here
+        result = self.clients[0].models.embed_content(
             model=self.EMBEDDING_MODEL,
             contents=text,
             config={"output_dimensionality": self.OUTPUT_DIM}
@@ -28,12 +36,34 @@ class GeminiEmbeddings:
         return result.embeddings[0].values
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        result = self.client.models.embed_content(
-            model=self.EMBEDDING_MODEL,
-            contents=texts,
-            config={"output_dimensionality": self.OUTPUT_DIM}
-        )
-        return [e.values for e in result.embeddings]
+        import time
+        max_retries = 3 * len(self.clients) # Try each key a few times
+        
+        for attempt in range(max_retries):
+            client = self.clients[self.current_client_idx]
+            try:
+                result = client.models.embed_content(
+                    model=self.EMBEDDING_MODEL,
+                    contents=texts,
+                    config={"output_dimensionality": self.OUTPUT_DIM}
+                )
+                return [e.values for e in result.embeddings]
+            except Exception as e:
+                if "429" in str(e):
+                    # Rotate to the next available API key
+                    next_idx = (self.current_client_idx + 1) % len(self.clients)
+                    if next_idx == 0:
+                        # If we've looped back to the first key, wait 35s to replenish quotas
+                        print(f"All {len(self.clients)} API keys hit rate limits. Sleeping 35s... (Attempt {attempt+1}/{max_retries})")
+                        time.sleep(35)
+                    else:
+                        print(f"Rate limit hit on key {self.current_client_idx}. Falling back to key {next_idx}...")
+                    
+                    self.current_client_idx = next_idx
+                else:
+                    raise e
+        
+        raise RuntimeError(f"Failed to embed documents after {max_retries} attempts across {len(self.clients)} API keys.")
 
 
 class RagService:

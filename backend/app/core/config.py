@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     
     # External APIs
     GEMINI_API_KEY: str = ""
+    GEMINI_API_KEYS: str = "" # Comma-separated list of additional keys for load-balancing
     LLAMA_CLOUD_API_KEY: str = ""
     
     # AWS / Neon Object Storage
